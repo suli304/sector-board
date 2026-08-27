@@ -152,6 +152,13 @@ select { width:100%; background:var(--bg); color:var(--text); border:1px solid v
     for (var i = 0; i < currentStocks.length; i++) {
       if (currentStocks[i].code === current.code) return currentStocks[i].file;
     }
+    /* P7 联动：跨板块个股代码回退到全量映射反查（DATA.stocks[板块] = [{code,name,file}]） */
+    for (var sec in DATA.stocks) {
+      var list = DATA.stocks[sec];
+      for (var j = 0; j < list.length; j++) {
+        if (list[j].code === current.code) return list[j].file;
+      }
+    }
     return null;
   }
   var PERIOD_NAME = { daily: '日K', weekly: '周K', monthly: '月K' };
@@ -373,6 +380,27 @@ select { width:100%; background:var(--bg); color:var(--text); border:1px solid v
   function switchTo(code, level) {
     current.code = code;
     current.level = level;
+    /* P7 联动：跨板块个股代码时，从全量映射反查所属板块并同步 currentStocks/下拉/高亮 */
+    if (level === 'stock' && DATA) {
+      var found = false;
+      for (var i = 0; i < currentStocks.length; i++) { if (currentStocks[i].code === code) { found = true; break; } }
+      if (!found) {
+        for (var sec in DATA.stocks) {
+          var list = DATA.stocks[sec];
+          for (var j = 0; j < list.length; j++) {
+            if (list[j].code === code) {
+              currentStocks = list;
+              loadStockSelect(sec);
+              var secBtn = document.querySelector('#sectorList button[data-code="' + sec + '"]');
+              if (secBtn) setActiveSector(secBtn);
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+      }
+    }
     render(code);
     if (window.BoardLink) window.BoardLink.setState({ code: code, level: level, from: 'tab-main' });
   }
