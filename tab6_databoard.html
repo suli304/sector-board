@@ -43,6 +43,14 @@
   .pgbtn { background:#171e2e; border:1px solid #2a3a55; color:#9fb0cc; padding:4px 12px; border-radius:6px; font-size:12px; cursor:pointer; }
   .pgbtn:hover:not(:disabled) { background:#2d5cff; color:#fff; }
   .pgbtn:disabled { opacity:0.35; cursor:not-allowed; }
+  .thead-comment { font-size:10px; color:#5a6b8a; font-weight:400; line-height:1.4; }
+  .thead-comment .cd { display:block; }
+  #colDescPopup { position:fixed; top:60px; right:16px; z-index:999; width:420px; max-height:480px; overflow:auto; background:#1a2234; border:1px solid #33415f; border-radius:10px; padding:12px 14px; box-shadow:0 8px 24px rgba(0,0,0,.45); display:none; font-size:12px; color:#9fb0cc; }
+  #colDescPopup.show { display:block; }
+  #colDescPopup h4 { color:#e8eefc; font-size:13px; margin:6px 0; }
+  #colDescPopup .crow { display:flex; gap:6px; align-items:baseline; margin-bottom:5px; line-height:1.5; }
+  #colDescPopup .crow b { color:#d8e0ee; white-space:nowrap; }
+  #colDescPopup .crow .cs { color:#ffd76a; font-size:11px; white-space:nowrap; }
   .apibox { background:#171e2e; border:1px solid #26324a; border-radius:8px; padding:10px 12px; margin:8px 0; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; color:#9fd8a8; display:flex; gap:10px; align-items:flex-start; }
   .apibox pre { flex:1; margin:0; overflow:auto; }
 </style>
@@ -59,6 +67,7 @@
   <div class="ctrl" id="dateLabel"></div>
   <button class="btn" id="exportBtn">导出 CSV</button>
   <button class="btn ghost" id="apiBtn">API 示例</button>
+  <button class="btn ghost" id="colDescBtn">列说明</button>
   <span class="ctrl" id="cntLabel"></span>
 </div>
 <div class="wrap">
@@ -77,6 +86,161 @@
 var DATA=null, LVL='', SORT={k:'composite_score',d:-1};
 var PAGE=1, PAGE_SIZE=100;
 var VIS={};
+var COL_DESC = {
+ "code": [
+  "代码",
+  "标的代码：板块如 US.LIST20010，个股如 US.SCHW"
+ ],
+ "name": [
+  "名称",
+  "板块或个股的中文/英文名称"
+ ],
+ "level": [
+  "层级",
+  "数据层级：sector=板块，stock=个股"
+ ],
+ "date": [
+  "日期",
+  "数据所属交易日 YYYY-MM-DD"
+ ],
+ "change_rate": [
+  "涨跌幅%",
+  "当日收盘涨跌幅（百分比，负=下跌）"
+ ],
+ "net_inflow": [
+  "净流入",
+  "当日净流入金额（元，负=净流出）"
+ ],
+ "C": [
+  "累计资金",
+  "该标的至今累计净流入（元）"
+ ],
+ "MA5": [
+  "资金MA5",
+  "累计资金C的5日移动平均（资金短趋势）"
+ ],
+ "MA10": [
+  "资金MA10",
+  "累计资金C的10日移动平均"
+ ],
+ "MA20": [
+  "资金MA20",
+  "累计资金C的20日移动平均"
+ ],
+ "MA55": [
+  "资金MA55",
+  "累计资金C的55日移动平均（长趋势）"
+ ],
+ "fund_cross_up": [
+  "资金上穿",
+  "资金曲线向上穿越均线（金叉）；格式 否|是|是|是 对应 MA5/10/20/55，是=上穿"
+ ],
+ "fund_cross_down": [
+  "资金下穿",
+  "资金曲线向下穿越均线（死叉）；对应 MA5/10/20/55"
+ ],
+ "price_cross_up": [
+  "价格上穿",
+  "股价向上穿越均线（金叉）；对应 MA5/10/20/55"
+ ],
+ "price_cross_down": [
+  "价格下穿",
+  "股价向下穿越均线（死叉）；对应 MA5/10/20/55"
+ ],
+ "vol_ratio": [
+  "量能比",
+  "当日成交量相对均量倍数（>1 放量）"
+ ],
+ "vol_level": [
+  "量能档",
+  "量能分级：缩量/正常/温和放量/放量/显著放量/强烈放量/极端放量"
+ ],
+ "res_20_20": [
+  "共振信号",
+  "资金与股价共振：共振买入/共振卖出/无"
+ ],
+ "div_daily_score": [
+  "日K背离分",
+  "日K线顶底背离强度评分（0-18.5，越高越强）"
+ ],
+ "div_daily_type": [
+  "日K背离型",
+  "顶背离（价高资金流出）/底背离（价低资金流入）/无"
+ ],
+ "div_weekly_score": [
+  "周K背离分",
+  "周K线背离强度评分"
+ ],
+ "div_weekly_type": [
+  "周K背离型",
+  "顶背离/底背离/无"
+ ],
+ "div_monthly_score": [
+  "月K背离分",
+  "月K线背离强度评分"
+ ],
+ "div_monthly_type": [
+  "月K背离型",
+  "顶背离/底背离/无"
+ ],
+ "intraday_tail": [
+  "尾盘突袭",
+  "是否触发尾盘突袭形态（1=是，最后10分钟资金异动）"
+ ],
+ "intraday_tail_strength": [
+  "尾盘强度",
+  "尾盘突袭强度档 S1-S3（S3 最强）"
+ ],
+ "intraday_pattr": [
+  "价格吸引",
+  "是否触发价格吸引形态（1=是，价资金同向）"
+ ],
+ "intraday_pattr_strength": [
+  "吸引强度",
+  "价格吸引强度档 S1-S4"
+ ],
+ "intraday_pvd": [
+  "量价背离",
+  "是否触发日内量价背离（1=是，价资金反向）"
+ ],
+ "intraday_pvd_strength": [
+  "背离强度",
+  "日内量价背离强度档 S1-S3"
+ ],
+ "intraday_osc": [
+  "资金震荡",
+  "是否触发资金震荡形态（1=是，日内净流入方向反复反转）"
+ ],
+ "intraday_osc_strength": [
+  "震荡强度",
+  "资金震荡强度档 S1-S4"
+ ],
+ "dominance": [
+  "资金主导",
+  "当日资金主导方：主力主导/散户主导/分歧"
+ ],
+ "dedup_applied": [
+  "去重标记",
+  "信号去重/互斥标记：背离↔转折互斥 / 尾盘↔量能互斥 / 无"
+ ],
+ "turn_type": [
+  "折点类型",
+  "累计资金转折点：top=顶(见顶)/bottom=底(见底)/none=无"
+ ],
+ "s_turn": [
+  "转折强度",
+  "折点显著性强度数值（越大转折越明确）"
+ ],
+ "composite_score": [
+  "综合分",
+  "多因子加权综合异常分（越高越值得关注；≥80 高亮红，≥60 黄）"
+ ],
+ "signal_strength": [
+  "信号强度",
+  "综合信号强度标记（○ 常规）"
+ ]
+};
+
 
 function fmt(v){
   if(v===null||v===undefined||v==='') return '';
@@ -122,6 +286,8 @@ function renderHead(){
   var th=document.getElementById('tHead');
   th.innerHTML='';
   var tr=document.createElement('tr');
+  var trc=document.createElement('tr');
+  trc.className='thead-comment';
   DATA.meta.groups.forEach(function(g){
     g.cols.forEach(function(c){
       if(!VIS[c]) return;
@@ -131,10 +297,41 @@ function renderHead(){
       h.textContent=c+arrow;
       h.onclick=function(){ sortBy(c); };
       tr.appendChild(h);
+      var hc=document.createElement('th');
+      var cd=COL_DESC[c]||[c,''];
+      hc.className='thead-comment';
+      hc.innerHTML='<span class="cd">'+cd[0]+'</span>';
+      if(cd[1]) hc.title=cd[1];
+      trc.appendChild(hc);
     });
   });
   th.appendChild(tr);
+  th.appendChild(trc);
 }
+/* 轮次2-R7：列注释弹窗 */
+function renderColDescPopup(){
+  var box=document.getElementById('colDescPopup');
+  var html='<h4>列注释对照（'+DATA.meta.groups.reduce(function(n,g){return n+g.cols.length;},0)+' 列）</h4>';
+  DATA.meta.groups.forEach(function(g){
+    html+='<h4>'+g.g+'</h4>';
+    g.cols.forEach(function(c){
+      var cd=COL_DESC[c]||[c,''];
+      html+='<div class="crow"><b>'+c+'</b><span class="cs">'+cd[0]+'</span><span>'+cd[1]+'</span></div>';
+    });
+  });
+  box.innerHTML=html;
+}
+document.getElementById('colDescBtn').onclick=function(e){
+  e.stopPropagation();
+  var box=document.getElementById('colDescPopup');
+  if(box.classList.contains('show')){ box.classList.remove('show'); return; }
+  renderColDescPopup();
+  box.classList.add('show');
+};
+document.addEventListener('click',function(e){
+  var box=document.getElementById('colDescPopup');
+  if(box.classList.contains('show') && !box.contains(e.target) && e.target.id!=='colDescBtn') box.classList.remove('show');
+});
 
 function sortBy(c){
   if(SORT.k===c) SORT.d=-SORT.d; else {SORT.k=c; SORT.d=-1;}
@@ -267,9 +464,10 @@ fetch('data/tab6_data.json').then(function(r){return r.json();}).then(function(d
   renderHead();
   renderBody();
   document.getElementById('dateLabel').textContent='日期 '+DATA.meta.latestDate+' · '+DATA.meta.nRows+' 行';
-  var api='GET /api/signal_table?date='+DATA.meta.latestDate+'&level=stock&sort=composite_score&order=desc&cols=code,name,composite_score,dominance,turn_type';
-  document.getElementById('apiPre').textContent=api+'\n// 返回最新完整日判定表（B8 契约 38 列，可加 cols 裁剪；B14 含折点列 turn_type/s_turn）';
+  var api='python3 board_data_api.py --search <代码/名称> --cols code,name,composite_score,dominance,turn_type';
+  document.getElementById('apiPre').textContent='// 本地查询 API（轮次2-R6）：脚本位于 落地执行/board_data_api.py\n'+api+'\n// 其他技能可调用该脚本搜索/过滤，取出任意数值；全参数见 数据看板API说明.md';
 });
 </script>
+<div id="colDescPopup"></div>
 </body>
 </html>

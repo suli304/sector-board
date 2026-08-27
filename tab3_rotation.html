@@ -75,6 +75,9 @@ function fmtAmt(v){
   return s+(a/1e3).toFixed(0)+'K';
 }
 function fmtRate(v){ return v==null?'-':(v*100).toFixed(2)+'%'; }
+/* 轮次2-R5: 归一化显示放大1e6（norm_ratio=净流入÷流通市值，原始值1e-4~1e-3量级，toFixed(3)显示0.000）
+   单位：元/百万元流通市值；排序仍用原始 norm_ratio（单调，顺序不变） */
+function fmtNorm(v){ return v==null?'-':(v*1e6).toFixed(1); }
 
 function load(){
   fetch('data/tab3_data.json').then(function(r){return r.json();}).then(function(d){
@@ -124,7 +127,7 @@ function renderRank(){
   for(var i=0;i<list.length;i++){
     var r=list[i];
     names.push(r.n);
-    vals.push(norm ? (r.norm_ratio==null?0:r.norm_ratio) : r.in_flow/1e8);
+    vals.push(norm ? (r.norm_ratio==null?0:r.norm_ratio*1e6) : r.in_flow/1e8);
     cols.push(colorOf(r));
     info.push(r);
   }
@@ -133,14 +136,14 @@ function renderRank(){
     tooltip:{trigger:'axis',axisPointer:{type:'shadow'},
       formatter:function(ps){
         var r=info[ps[0].dataIndex];
-        return '<div class="tooltip-sec"><b>'+r.n+'</b> ('+cur.date+')<br>净流入：'+fmtAmt(r.in_flow)+'<br>流速：'+fmtRate(r.flow_rate)+'<br>归一化：'+(r.norm_ratio==null?'-':r.norm_ratio.toFixed(3))+'<br>流入排名：'+(r.rank_inflow||'-')+' / 流速排名：'+(r.rank_flowrate||'-')+'<br>排名变化：'+(r.rank_change==null?'-':r.rank_change)+'<br>象限：'+qmap(r.quad)+'</div>';
+        return '<div class="tooltip-sec"><b>'+r.n+'</b> ('+cur.date+')<br>净流入：'+fmtAmt(r.in_flow)+'<br>流速：'+fmtRate(r.flow_rate)+'<br>归一化：'+fmtNorm(r.norm_ratio)+'<br>流入排名：'+(r.rank_inflow||'-')+' / 流速排名：'+(r.rank_flowrate||'-')+'<br>排名变化：'+(r.rank_change==null?'-':r.rank_change)+'<br>象限：'+qmap(r.quad)+'</div>';
       }},
-    xAxis:{type:'value',name:norm?'归一化值':'净流入(亿)',axisLabel:{color:'#9fb0cc'},splitLine:{lineStyle:{color:'#26324a'}}},
+    xAxis:{type:'value',name:norm?'归一化(元/百万元市值)':'净流入(亿)',axisLabel:{color:'#9fb0cc'},splitLine:{lineStyle:{color:'#26324a'}}},
     yAxis:{type:'category',data:names,axisLabel:{color:'#d8e0ee',fontSize:11},axisLine:{lineStyle:{color:'#26324a'}}},
     series:[{type:'bar',data:vals.map(function(v,i){return {value:v,itemStyle:{color:cols[i]}};}),barWidth:12,
-      label:{show:true,position:'right',formatter:function(p){return norm ? (info[p.dataIndex].norm_ratio==null?'-':info[p.dataIndex].norm_ratio.toFixed(3)) : fmtAmt(list[p.dataIndex].in_flow);},color:'#9fb0cc',fontSize:11}}]
+      label:{show:true,position:'right',formatter:function(p){return norm ? fmtNorm(info[p.dataIndex].norm_ratio) : fmtAmt(list[p.dataIndex].in_flow);},color:'#9fb0cc',fontSize:11}}]
   },true);
-  document.getElementById('tipBox').textContent='排名视角：'+cur.date+' '+ (RANKMODE==='top'?'净流入':'净流出')+' Top15（横条颜色=四象限，'+cur.rows.length+' 板块'+(norm?'，市值归一化排序':'')+'）';
+  document.getElementById('tipBox').textContent='排名视角：'+cur.date+' '+ (RANKMODE==='top'?'净流入':'净流出')+' Top15（横条颜色=四象限，'+cur.rows.length+' 板块'+(norm?'，市值归一化排序(单位:元/百万元市值)':'')+'）';
 }
 
 function renderAbs(){
@@ -156,7 +159,7 @@ function renderAbs(){
     grid:{left:70,right:30,top:30,bottom:50},
     tooltip:{formatter:function(p){
       var d=p.data; if(d==null||d.quad==null) return '';
-      return '<div class="tooltip-sec"><b>'+d.name+'</b> ('+cur.date+')<br>净流入：'+fmtAmt(d.value[2])+'<br>流速：'+fmtRate(d.fr)+'<br>归一化：'+(d.nr==null?'-':d.nr.toFixed(3))+'<br>流入排名：'+(d.ri||'-')+'<br>排名变化：'+(d.rc==null?'-':d.rc)+'<br>象限：'+qmap(d.quad)+'</div>';
+      return '<div class="tooltip-sec"><b>'+d.name+'</b> ('+cur.date+')<br>净流入：'+fmtAmt(d.value[2])+'<br>流速：'+fmtRate(d.fr)+'<br>归一化：'+fmtNorm(d.nr)+'<br>流入排名：'+(d.ri||'-')+'<br>排名变化：'+(d.rc==null?'-':d.rc)+'<br>象限：'+qmap(d.quad)+'</div>';
     }},
     xAxis:{type:'value',name:'净流入排序',min:-1,max:rows.length,axisLabel:{color:'#9fb0cc'},splitLine:{lineStyle:{color:'#26324a'}}},
     yAxis:{type:'value',name:'流速 %',axisLabel:{color:'#9fb0cc',formatter:function(v){return v.toFixed(2)+'%';}},splitLine:{lineStyle:{color:'#26324a'}}},
@@ -191,7 +194,7 @@ function renderAccel(){
     grid:{left:70,right:30,top:30,bottom:50},
     tooltip:{formatter:function(p){
       var d=p.data; if(d==null||d.quad==null) return '';
-      return '<div class="tooltip-sec"><b>'+d.name+'</b> ('+cur.date+')<br>流速：'+fmtRate(d.fr)+'<br>加速度：'+fmtRate(d.acc)+'<br>净流入：'+fmtAmt(d.in_flow)+'<br>归一化：'+(d.nr==null?'-':d.nr.toFixed(3))+'<br>流入排名：'+(d.ri||'-')+'<br>排名变化：'+(d.rc==null?'-':d.rc)+'<br>象限：'+qmap(d.quad)+'</div>';
+      return '<div class="tooltip-sec"><b>'+d.name+'</b> ('+cur.date+')<br>流速：'+fmtRate(d.fr)+'<br>加速度：'+fmtRate(d.acc)+'<br>净流入：'+fmtAmt(d.in_flow)+'<br>归一化：'+fmtNorm(d.nr)+'<br>流入排名：'+(d.ri||'-')+'<br>排名变化：'+(d.rc==null?'-':d.rc)+'<br>象限：'+qmap(d.quad)+'</div>';
     }},
     xAxis:{type:'value',name:'流速 %',axisLabel:{color:'#9fb0cc'},splitLine:{lineStyle:{color:'#26324a'}}},
     yAxis:{type:'value',name:'加速度 %',axisLabel:{color:'#9fb0cc'},splitLine:{lineStyle:{color:'#26324a'}}},

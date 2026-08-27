@@ -200,7 +200,7 @@ function init(){
   sel.addEventListener('change',function(){
     STOCK=sel.value; render();
     /* C9 联动：选中个股 → 主图切该个股 */
-    if (STOCK && window.BoardLink) window.BoardLink.emitNav(STOCK, 'stock', { tab: 'tab-main' });
+    if (STOCK && window.BoardLink) window.BoardLink.emitNav(STOCK, 'stock');  /* 轮次2-R4: 去掉tab参数，界面停留日内形态、主图联动 */
   });
   document.getElementById('searchBox').addEventListener('input',function(){ fillStockList(); if(STOCK) render(); });
   document.getElementById('dateSeg').addEventListener('click',function(e){

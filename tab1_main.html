@@ -21,6 +21,12 @@ nav#tabNav button.active { color:var(--accent); border-color:var(--border); back
 .panel h3 { font-size:13px; margin-bottom:8px; color:var(--accent); }
 .panel .grp { margin-bottom:14px; }
 .panel .grp label { display:block; font-size:12px; color:var(--text-dim); margin-bottom:4px; }
+#sectorSearch { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:12px; margin-bottom:6px; }
+#sectorSearch::placeholder { color:var(--text-dim); }
+#stockSearchResult { display:flex; flex-direction:column; gap:4px; max-height:150px; overflow-y:auto; margin-bottom:6px; }
+#stockSearchResult button { background:transparent; border:1px solid var(--border); color:var(--text); border-radius:6px; padding:5px 8px; font-size:12px; cursor:pointer; text-align:left; }
+#stockSearchResult button:hover { border-color:var(--accent); }
+#stockSearchResult .hint { color:var(--text-dim); font-size:11px; border-style:dashed; cursor:default; }
 #sectorList { display:flex; flex-direction:column; gap:4px; max-height:200px; overflow-y:auto; }
 #sectorList button { background:transparent; border:1px solid var(--border); color:var(--text); border-radius:6px; padding:6px 8px; font-size:12px; cursor:pointer; text-align:left; }
 #sectorList button:hover { border-color:var(--accent); }
@@ -56,6 +62,8 @@ select { width:100%; background:var(--bg); color:var(--text); border:1px solid v
   <div class="panel">
     <div class="grp">
       <h3>板块 / 个股</h3>
+      <input type="text" id="sectorSearch" placeholder="🔍 搜索板块 / 个股（名称或代码）">
+      <div id="stockSearchResult"></div>
       <label>板块列表（点击切换）</label>
       <div id="sectorList"></div>
     </div>
@@ -338,6 +346,58 @@ select { width:100%; background:var(--bg); color:var(--text); border:1px solid v
     setStatus('tab1_data.json · 周期 ' + PERIOD_NAME[current.period] + ' · 口径 ' + CALIBER_NAME[current.caliber] + ' · ' + dates.length + ' 个K线点');
     setTarget(s.name + ' (' + code + ')');
   }
+
+  /* ============ 轮次2-R1：板块/个股搜索（过滤板块按钮 + 全量个股匹配） ============ */
+  function applySectorFilter() {
+    var q = document.getElementById('sectorSearch').value.trim().toLowerCase();
+    var box = document.getElementById('sectorList');
+    var all = box.querySelectorAll('button');
+    var visible = 0;
+    all.forEach(function (b) {
+      var hit = !q || b.textContent.toLowerCase().indexOf(q) >= 0 || b.dataset.code.toLowerCase().indexOf(q) >= 0;
+      b.style.display = hit ? '' : 'none';
+      if (hit) visible++;
+    });
+    return visible;
+  }
+  function renderStockSearch() {
+    var q = document.getElementById('sectorSearch').value.trim().toLowerCase();
+    var box = document.getElementById('stockSearchResult');
+    if (!q) { box.innerHTML = ''; return; }
+    var hits = [];
+    for (var sec in DATA.stocks) {
+      var list = DATA.stocks[sec] || [];
+      for (var i = 0; i < list.length; i++) {
+        var st = list[i];
+        if (st.code.toLowerCase().indexOf(q) >= 0 || st.name.toLowerCase().indexOf(q) >= 0) {
+          hits.push({ code: st.code, name: st.name });
+        }
+      }
+    }
+    if (!hits.length) { box.innerHTML = '<button class="hint">无匹配个股</button>'; return; }
+    var html = '<button class="hint">个股匹配 ' + hits.length + ' 只（点击切换）</button>';
+    hits.slice(0, 50).forEach(function (h) {
+      html += '<button data-code="' + h.code + '">' + h.name + ' <span style="color:var(--text-dim)">' + h.code + '</span></button>';
+    });
+    box.innerHTML = html;
+    box.querySelectorAll('button[data-code]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        switchTo(b.dataset.code, 'stock');
+        document.getElementById('sectorSearch').value = '';
+        onSectorSearch();
+      });
+    });
+  }
+  function onSectorSearch() {
+    var v = document.getElementById('sectorSearch').value.trim();
+    applySectorFilter();
+    renderStockSearch();
+    if (!v) {
+      var act = document.querySelector('#sectorList button.active');
+      if (act) act.style.display = '';
+    }
+  }
+  document.getElementById('sectorSearch').addEventListener('input', onSectorSearch);
 
   /* ============ 板块/个股列表 ============ */
   function loadSectorList() {

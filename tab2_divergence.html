@@ -25,6 +25,9 @@ nav#tabNav button.active { color:var(--accent); border-color:var(--border); back
 .seg button { flex:1; background:var(--bg); border:1px solid var(--border); color:var(--text-dim); border-radius:6px; padding:5px 4px; font-size:11px; cursor:pointer; }
 .seg button.active { background:rgba(61,159,255,.18); border-color:var(--accent); color:var(--accent); font-weight:600; }
 select { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px; font-size:12px; }
+#jumpInput { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:12px; margin-bottom:6px; }
+#jumpInput::placeholder { color:var(--text-dim); }
+
 .legend { display:flex; gap:10px; flex-wrap:wrap; font-size:11px; color:var(--text-dim); padding:4px 0; }
 .legend span { display:inline-flex; align-items:center; gap:4px; }
 .dot { display:inline-block; width:10px; height:10px; border-radius:50%; }
@@ -67,6 +70,11 @@ td.num { text-align:right; font-variant-numeric:tabular-nums; }
 </nav>
 <div class="layout">
   <div class="panel">
+    <div class="grp">
+      <h3>板块跳转（搜索）</h3>
+      <input type="text" id="jumpInput" placeholder="输入板块名称/代码…">
+      <select id="jumpSelect"></select>
+    </div>
     <div class="grp">
       <h3>周期切换</h3>
       <div class="seg" id="periodSeg">
@@ -277,6 +285,7 @@ td.num { text-align:right; font-variant-numeric:tabular-nums; }
     b.classList.add('active');
     current.period = b.getAttribute('data-period');
     rebuildPlates();
+    rebuildJump();
     if (current.rank === 'within') current.rank = 'sector';
     refreshRankSeg();
     // 重置目标到当前周期板块第一
@@ -321,7 +330,7 @@ td.num { text-align:right; font-variant-numeric:tabular-nums; }
       else if (rr.type === 'between') code = row.pc || (per.sectors[row.i] && per.sectors[row.i].c);
       else code = per.stocks[row.i] && per.stocks[row.i].c;
     }
-    if (code && window.BoardLink) window.BoardLink.emitNav(code, tr.getAttribute('data-level'), { tab: 'tab-main' });
+    if (code && window.BoardLink) window.BoardLink.emitNav(code, tr.getAttribute('data-level'))  /* 轮次2-R3: 去掉tab参数，界面停留背离、主图联动 */;
   });
   document.getElementById('tabNav').addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b) return;
@@ -359,6 +368,44 @@ td.num { text-align:right; font-variant-numeric:tabular-nums; }
     });
     document.getElementById('plateGrp').style.display = current.rank === 'within' ? '' : 'none';
   }
+  /* ============ 轮次2-R2：板块搜索下拉跳转（80 板块） ============ */
+  function rebuildJump() {
+    var sel = document.getElementById('jumpSelect');
+    var per = pd();
+    var opts = ['<option value="">— 选择板块跳转 —</option>'];
+    for (var i = 0; i < per.sectors.length; i++) {
+      opts.push('<option value="' + i + '" data-c="' + per.sectors[i].c + '">' + per.sectors[i].n + ' · ' + per.sectors[i].c + '</option>');
+    }
+    sel.innerHTML = opts.join('');
+    applyJumpFilter();
+  }
+  function applyJumpFilter() {
+    var q = document.getElementById('jumpInput').value.trim().toLowerCase();
+    var sel = document.getElementById('jumpSelect');
+    var opts = sel.querySelectorAll('option');
+    var vis = 0;
+    for (var i = 0; i < opts.length; i++) {
+      if (!opts[i].value) continue;
+      var hit = !q || opts[i].textContent.toLowerCase().indexOf(q) >= 0;
+      opts[i].style.display = hit ? '' : 'none';
+      if (hit) vis++;
+    }
+  }
+  function jumpToPlate() {
+    var sel = document.getElementById('jumpSelect');
+    var idx = +sel.value;
+    if (isNaN(idx) || !sel.value) return;
+    var per = pd();
+    if (!per.sectors[idx]) return;
+    current.target = { level: 'sector', idx: idx };
+    renderChart();
+    renderRank();
+    /* 轮次2-R3：联动主图但不跳界面（去掉 tab 参数） */
+    if (per.sectors[idx].c && window.BoardLink) window.BoardLink.emitNav(per.sectors[idx].c, 'sector');
+  }
+  document.getElementById('jumpInput').addEventListener('input', applyJumpFilter);
+  document.getElementById('jumpSelect').addEventListener('change', jumpToPlate);
+
   function rebuildPlates() {
     var sel = document.getElementById('plateSelect');
     var per = pd();
@@ -375,6 +422,7 @@ td.num { text-align:right; font-variant-numeric:tabular-nums; }
   loadJSON('data/tab2_data.json', function (d) {
     DATA = d;
     rebuildPlates();
+    rebuildJump();
     var per = pd();
     if (per.rankSector.length) current.target = { level: 'sector', idx: per.rankSector[0].i };
     renderChart();
