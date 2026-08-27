@@ -46,6 +46,10 @@
   <select id="stockSel"></select>
   <div class="seg" id="dateSeg"></div>
   <span class="ctrl">形态筛选</span>
+  <div class="seg" id="modeSeg">
+    <button id="modeOr" class="active">并集OR</button>
+    <button id="modeAnd">交集AND</button>
+  </div>
   <div class="seg" id="formSeg">
     <button data-f="eilo" class="chip active">先进后出</button>
     <button data-f="tail" class="chip active">尾盘突袭</button>
@@ -85,6 +89,7 @@ var DATA=null, DATE=null, STOCK=null;
 var chart=null;
 var FORM_COLORS={eilo:'#5da2ff',tail:'#ffd76a',pattr:'#c08bff',pvd:'#ff8a5d',osc:'#2dffa0',abn3x:'#ff5a5a',abntail:'#ffa15d',abncont:'#ffd700',abncls:'#ff69b4'};
 var FORM_NAMES={eilo:'先进后出',tail:'尾盘突袭',pattr:'价格吸引',pvd:'量价背离',osc:'资金震荡',abn3x:'3倍异常',abntail:'尾盘异常',abncont:'连续异常',abncls:'收盘异常'};
+var FORM_MODE='or';  /* 形态筛选模式: 'or'=并集(任一满足) | 'and'=交集(全部满足) */
 
 function fmtAmt(v){
   if(v==null) return '-';
@@ -103,8 +108,18 @@ function activeForms(){
 }
 function stockPass(st){
   var forms=activeForms();
+  if(forms.length===0) return false;  /* 空表单拦截：无任何选中形态时不展示 */
   var day=st.d[DATE];
   if(!day) return false;
+  if(FORM_MODE==='and'){
+    /* 交集：全部选中形态均触发才通过 */
+    for(var i=0;i<forms.length;i++){
+      var f=day.forms[forms[i]];
+      if(!(f && f.t)) return false;
+    }
+    return true;
+  }
+  /* 并集（默认）：任一形态触发即通过 */
   for(var i=0;i<forms.length;i++){
     var f=day.forms[forms[i]];
     if(f && f.t) return true;
@@ -207,6 +222,13 @@ function init(){
     var b=e.target.closest('button'); if(!b) return;
     DATE=b.dataset.d;
     var arr=document.querySelectorAll('#dateSeg button');
+    for(var i=0;i<arr.length;i++) arr[i].classList.toggle('active',arr[i]===b);
+    fillStockList(); render();
+  });
+  document.getElementById('modeSeg').addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b) return;
+    FORM_MODE=(b.id==='modeAnd')?'and':'or';
+    var arr=document.querySelectorAll('#modeSeg button');
     for(var i=0;i<arr.length;i++) arr[i].classList.toggle('active',arr[i]===b);
     fillStockList(); render();
   });
