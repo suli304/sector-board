@@ -145,6 +145,15 @@ select { width:100%; background:var(--bg); color:var(--text); border:1px solid v
   var chart = echarts.init(document.getElementById('mainChart'));
   var current = { code: null, level: 'sector', period: 'daily', caliber: 'main' };
   var DATA = null;
+  /* A2：个股分片缓存 + 当前板块映射（DATA.stocks[code] = [{code,name,file}]） */
+  var stockCache = {};
+  var currentStocks = [];
+  function currentStockFile() {
+    for (var i = 0; i < currentStocks.length; i++) {
+      if (currentStocks[i].code === current.code) return currentStocks[i].file;
+    }
+    return null;
+  }
   var PERIOD_NAME = { daily: '日K', weekly: '周K', monthly: '月K' };
   var CALIBER_NAME = { main: '主力', total: '全量', retail: '散户' };
 
@@ -153,11 +162,19 @@ select { width:100%; background:var(--bg); color:var(--text); border:1px solid v
   function setPeriodLabel() { document.getElementById('stPeriod').textContent = PERIOD_NAME[current.period]; }
   function setCaliberLabel() { document.getElementById('stCaliber').textContent = CALIBER_NAME[current.caliber]; }
 
-  /* 当前周期/口径下取序列 */
+  /* 当前周期/口径下取序列（A2：板块级从 DATA.periods 取；个股从分片缓存 stockCache 取） */
   function getSeries(code) {
-    var pd = DATA.periods[current.period];
-    if (!pd || !pd[code]) return null;
-    return pd[code];
+    if (current.level === 'sector') {
+      var pd = DATA.periods[current.period];
+      if (!pd || !pd[code]) return null;
+      return pd[code];
+    }
+    var file = currentStockFile();
+    if (!file) return null;
+    var shard = stockCache[file];
+    if (!shard || !shard.periods) return null;
+    var pd2 = shard.periods[current.period];
+    return (pd2 && pd2[code]) ? pd2[code] : null;
   }
 
   /* C10 降采样：>2000 点等间隔抽稀（方案 13.4 ②，防数据过载） */
@@ -180,8 +197,30 @@ select { width:100%; background:var(--bg); color:var(--text); border:1px solid v
     return o;
   }
 
+  /* A2：render 异步化 —— 个股先按需加载分片再绘制；板块级直接绘制 */
   function render(code) {
-    var s = _downsampleSeries(getSeries(code));
+    if (current.level === 'stock') {
+      ensureStockSeries(code, function () {
+        draw(_downsampleSeries(getSeries(code)), code);
+      });
+    } else {
+      draw(_downsampleSeries(getSeries(code)), code);
+    }
+  }
+  /* A2：个股分片按需加载（stockCache 缓存，同一板块多只股票复用同一分片文件） */
+  function ensureStockSeries(code, cb) {
+    var file = currentStockFile();
+    if (!file) { cb(); return; }
+    if (stockCache[file]) { cb(); return; }
+    setStatus('加载个股分片: ' + file + ' …');
+    loadJSON('data/' + file, function (d) {
+      stockCache[file] = d;
+      cb();
+    }, function (msg) {
+      setStatus('分片加载失败: ' + msg);
+    });
+  }
+  function draw(s, code) {
     if (!s) { setStatus('无数据: ' + code); return; }
     var d = s.dates, k = s.kline;
     var dates = d;
@@ -321,9 +360,10 @@ select { width:100%; background:var(--bg); color:var(--text); border:1px solid v
     if (btn) btn.classList.add('active');
   }
   function loadStockSelect(sectorCode) {
+    currentStocks = DATA.stocks[sectorCode] || [];
     var sel = document.getElementById('stockSelect');
     sel.innerHTML = '<option value="">— 不选（显示板块）—</option>';
-    (DATA.stocks[sectorCode] || []).forEach(function (st) {
+    currentStocks.forEach(function (st) {
       var o = document.createElement('option');
       o.value = st.code;
       o.textContent = st.name;

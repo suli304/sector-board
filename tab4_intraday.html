@@ -19,6 +19,16 @@
   .seg button.active { background:#2d5cff; color:#fff; }
   .chip { padding:4px 10px; border-radius:20px; font-size:12px; cursor:pointer; border:1px solid #2a3a55; color:#9fb0cc; background:transparent; }
   .chip.active { background:#2d5cff; color:#fff; border-color:#2d5cff; }
+  /* D 块（P4）：术语图例 */
+  .legendBtn { padding:4px 12px; border-radius:6px; font-size:12px; cursor:pointer; border:1px solid #2a3a55; color:#9fb0cc; background:transparent; }
+  .legendBtn:hover { color:#e8eefc; border-color:#4a6a9a; }
+  .legendPopup { position:absolute; top:52px; right:16px; z-index:999; width:340px; max-height:440px; overflow:auto; background:#1a2234; border:1px solid #33415f; border-radius:10px; padding:12px 14px; box-shadow:0 8px 24px rgba(0,0,0,.45); display:none; }
+  .legendPopup.show { display:block; }
+  .legendPopup h4 { color:#e8eefc; font-size:13px; margin:8px 0 6px; }
+  .legendPopup h4:first-child { margin-top:0; }
+  .legendPopup .lrow { display:flex; gap:6px; align-items:baseline; font-size:12px; color:#9fb0cc; margin-bottom:5px; line-height:1.5; }
+  .legendPopup .lrow b { color:#d8e0ee; white-space:nowrap; font-weight:600; }
+  .legendPopup .dot { display:inline-block; width:8px; height:8px; border-radius:50%; flex:none; margin-top:4px; }
   .wrap { padding:10px 16px; }
   #chartBox { width:100%; height:640px; background:#0f1420; }
   .formbar { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
@@ -48,6 +58,22 @@
     <button data-f="abncont" class="chip active">连续异常</button>
     <button data-f="abncls" class="chip active">收盘异常</button>
   </div>
+  <button class="legendBtn" id="legendBtn">术语说明</button>
+</div>
+<div class="legendPopup" id="legendPopup">
+  <h4>形态（5）</h4>
+  <div class="lrow"><span class="dot" style="background:#5da2ff"></span><b>先进后出</b><span>早盘(09:30-11:30)净流入&gt;0 且 尾盘(14:30-16:00)净流出&lt;0，且早盘流入≥30%尾盘流出；强度=|尾盘流出|/当日成交额 S1:≥20%</span></div>
+  <div class="lrow"><span class="dot" style="background:#ffd76a"></span><b>尾盘突袭</b><span>最后10分钟(15:50-16:00)净流入占当日累计净流入≥5%/10%/15% → S1/S2/S3；in=拉 out=砸</span></div>
+  <div class="lrow"><span class="dot" style="background:#c08bff"></span><b>价格吸引</b><span>|涨跌幅|≥2% 且 资金同向（涨→净流入&gt;0，跌→净流出&lt;0）；S1:≥2% S2:≥4% S3:≥6% S4:≥8%</span></div>
+  <div class="lrow"><span class="dot" style="background:#ff8a5d"></span><b>量价背离</b><span>|涨跌幅|≥1% 且 价资金反向（价涨资金流出=顶背离 / 价跌资金流入=底背离）；强度优先 E2 背离分</span></div>
+  <div class="lrow"><span class="dot" style="background:#2dffa0"></span><b>资金震荡</b><span>日内净流入符号反转次数≥4；S1:4 S2:5 S3:6 S4:≥7</span></div>
+  <h4>异常量（4）</h4>
+  <div class="lrow"><span class="dot" style="background:#ff5a5a"></span><b>3倍异常</b><span>存在分钟量 |净流入| ≥ 3×当日分钟均量（放量≥3x）</span></div>
+  <div class="lrow"><span class="dot" style="background:#ffa15d"></span><b>尾盘异常</b><span>尾盘最后 5/10 分钟 |净流入| 占当日总量 ≥5%/10%/15% 任达</span></div>
+  <div class="lrow"><span class="dot" style="background:#ffd700"></span><b>连续异常</b><span>主力连续≥10分钟净流入为正（N=10）</span></div>
+  <div class="lrow"><span class="dot" style="background:#ff69b4"></span><b>收盘异常</b><span>特大单连续≥3分钟聚类净流入为正（K=3）</span></div>
+  <h4>口径</h4>
+  <div class="lrow"><span>数据源=当日分钟资金流（99 只核心）；主力=特大+大(super+big)、机构=特大(super)、散户=小(sml)</span></div>
 </div>
 <div class="wrap">
   <div id="chartBox"></div>
@@ -188,6 +214,17 @@ function init(){
     var b=e.target.closest('button'); if(!b) return;
     b.classList.toggle('active');
     fillStockList(); render();
+  });
+  /* D 块（P4）：术语图例开关 + 点击外部关闭 */
+  var legendBtn=document.getElementById('legendBtn'), legendPopup=document.getElementById('legendPopup');
+  legendBtn.addEventListener('click',function(e){
+    e.stopPropagation();
+    legendPopup.classList.toggle('show');
+  });
+  document.addEventListener('click',function(e){
+    if(legendPopup.classList.contains('show') && !legendPopup.contains(e.target) && e.target!==legendBtn){
+      legendPopup.classList.remove('show');
+    }
   });
 }
 function load(){

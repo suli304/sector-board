@@ -326,7 +326,31 @@ td.num { text-align:right; font-variant-numeric:tabular-nums; }
   document.getElementById('tabNav').addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b) return;
     var tab = b.getAttribute('data-tab');
-    if (tab === 'tab-main') { window.location.href = 'tab1_main.html'; return; }
+    if (tab === 'tab-main') {
+      /* C 修复（P3）：iframe 内不再整页跳转（会污染背离 Tab），改通知父窗口切 Tab；
+       * 若当前有选中标的则联动主图；独立打开时保留原跳转行为 */
+      var inFrame = (window.self !== window.top);
+      if (inFrame) {
+        var c = null, lv = 'sector';
+        try {
+          var rr = rowsForRank(), per = pd(), row = null, k;
+          for (k = 0; k < rr.rows.length; k++) { if (rr.rows[k].i === current.target.idx) { row = rr.rows[k]; break; } }
+          if (row) {
+            if (rr.type === 'sector') c = per.sectors[row.i] && per.sectors[row.i].c;
+            else if (rr.type === 'between') c = row.pc || (per.sectors[row.i] && per.sectors[row.i].c);
+            else c = per.stocks[row.i] && per.stocks[row.i].c;
+            lv = rr.type === 'sector' || rr.type === 'between' ? 'sector' : 'stock';
+          }
+        } catch (err) { c = null; }
+        if (window.BoardLink) {
+          if (c) window.BoardLink.emitNav(c, lv, { tab: 'tab-main' });
+          else if (window.parent && window.parent.postMessage) window.parent.postMessage({ type: 'board-nav', tab: 'tab-main' }, '*');
+        }
+      } else {
+        window.location.href = 'tab1_main.html';
+      }
+      return;
+    }
     setStatus('该 Tab 将在后续 Step 落地（' + tab + '）');
   });
   function refreshRankSeg() {

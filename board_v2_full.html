@@ -120,10 +120,19 @@ main { flex: 1; padding: 14px 20px 26px; overflow: hidden; display: flex; flex-d
   var nav = document.getElementById('tabNav');
   var buttons = nav.querySelectorAll('button[data-tab]');
   var panels = document.querySelectorAll('.tab-panel');
+  /* C 修复（P3 双保险）：记录各 iframe 初始 src，供防污染重置 */
+  document.querySelectorAll('.tab-panel iframe').forEach(function (f) {
+    if (!f.getAttribute('data-src')) f.setAttribute('data-src', f.getAttribute('src'));
+  });
   function switchTab(target) {
     buttons.forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === target); });
     panels.forEach(function (p) { p.classList.toggle('active', p.id === target); });
     log('切换到: ' + target);
+    /* C 修复（P3 双保险）：切到某 Tab 时若 iframe 被污染（src 偏离初始值）则重置 */
+    var f = document.querySelector('#' + target + ' iframe');
+    if (f && f.getAttribute('data-src') && f.getAttribute('src') !== f.getAttribute('data-src')) {
+      f.setAttribute('src', f.getAttribute('data-src'));
+    }
   }
   buttons.forEach(function (btn) {
     btn.addEventListener('click', function () {

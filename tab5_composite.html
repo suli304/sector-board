@@ -13,12 +13,19 @@
   .topbar .title { font-size:15px; font-weight:600; color:#e8eefc; margin-right:6px; }
   .ctrl { display:flex; align-items:center; gap:6px; font-size:13px; color:#9fb0cc; }
   select { background:#0f1420; border:1px solid #2a3a55; color:#d8e0ee; padding:5px 8px; border-radius:5px; font-size:13px; max-width:200px; }
+  #dateSel { min-width:136px; }
   .seg { display:flex; background:#0f1420; border:1px solid #2a3a55; border-radius:6px; overflow:hidden; }
   .seg button { background:transparent; border:none; color:#9fb0cc; padding:5px 12px; font-size:13px; cursor:pointer; }
   .seg button.active { background:#2d5cff; color:#fff; }
   .chip { padding:4px 10px; border-radius:20px; font-size:12px; cursor:pointer; border:1px solid #2a3a55; color:#9fb0cc; background:transparent; }
   .chip.active { background:#2d5cff; color:#fff; border-color:#2d5cff; }
   .wrap { padding:10px 16px; }
+  /* E 块（P5）：7 指标权重展示条 */
+  .weightbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; background:#171e2e; border:1px solid #26324a; border-radius:8px; padding:9px 12px; margin-bottom:2px; }
+  .weightbar .wl { font-size:13px; color:#9fb0cc; margin-right:2px; }
+  .weightbar .wi { display:inline-flex; align-items:center; gap:5px; background:#0f1420; border:1px solid #26324a; border-radius:14px; padding:3px 11px; font-size:12px; color:#d8e0ee; }
+  .weightbar .wi b { color:#ffd76a; font-weight:600; }
+  .weightbar .wnote { font-size:11px; color:#5f7ea8; margin-left:4px; }
   .sectitle { font-size:14px; font-weight:600; color:#e8eefc; margin:10px 0 8px; display:flex; align-items:center; gap:8px; }
   .sectitle .tag { font-size:11px; color:#6b7a96; font-weight:400; }
   .two-col { display:flex; gap:14px; flex-wrap:wrap; }
@@ -69,6 +76,8 @@
 <body>
 <div class="topbar">
   <span class="title">⑤ 综合信号</span>
+  <div class="ctrl">日期</div>
+  <select id="dateSel"><option value="">最新完整日</option></select>
   <div class="ctrl">板块</div>
   <select id="plateSel"><option value="">全部板块</option></select>
   <div class="ctrl">信号类型</div>
@@ -82,7 +91,8 @@
   <button class="chip" id="backtestBtn" title="回测功能入口（G-039）">🧪 回测</button>
 </div>
 <div class="wrap">
-  <div class="sectitle">板块排行 <span class="tag" id="secDate"></span><span class="tag">最新完整日</span></div>
+  <div class="weightbar" id="weightBar"></div>
+  <div class="sectitle">板块排行 <span class="tag" id="secDate"></span><span class="tag" id="secDateTag">最新完整日</span></div>
   <div class="two-col">
     <div class="col-chart"><div id="secChart"></div></div>
     <div class="col-cards">
@@ -102,6 +112,10 @@
 </div>
 <script>
 var DATA=null, chart=null;
+/* F 块（P6）：历史日期视图 */
+var DATE='';            // '' = 最新完整日
+var LATEST_DATE='';     // 初始快照的 latestDate
+var DATA_CACHE={};      // 按日期缓存历史快照
 var ORDER='desc';
 var PAGE=1, PAGE_SIZE=100;
 var SIGS=['div','tail','reso','vol','turn','intra','dom'];
@@ -110,6 +124,20 @@ var SIG_NAMES={div:'背离',tail:'尾盘',reso:'共振',vol:'量能',turn:'转�
 
 function scoreClass(v){ if(v>=80)return 'sc-high'; if(v>=60)return 'sc-mid'; return 'sc-low'; }
 function scoreColor(v){ if(v>=80)return '#ff5d7a'; if(v>=60)return '#ffd76a'; return '#9fb0cc'; }
+
+/* E 块（P5）：7 指标权重展示条 */
+function renderWeights(){
+  var bar=document.getElementById('weightBar');
+  if(!bar || !DATA || !DATA.meta || !DATA.meta.weights) return;
+  var w=DATA.meta.weights;
+  var html='<span class="wl">7 指标权重</span>';
+  DATA.meta.subsOrder.forEach(function(k){
+    var pct=Math.round((w[k]||0)*100);
+    html+='<span class="wi"><span style="color:'+SIG_COLOR[k]+'">●</span>'+SIG_NAMES[k]+' <b>'+pct+'%</b></span>';
+  });
+  html+='<span class="wnote">回测预设初版，随 E3 回测滚动更新</span>';
+  bar.innerHTML=html;
+}
 
 function initSigSeg(){
   var box=document.getElementById('sigSel');
@@ -132,6 +160,47 @@ function initPlateSel(){
     o.value=s.c; o.textContent=s.n;
     sel.appendChild(o);
   });
+}
+
+/* F 块（P6）：历史日期选择器 */
+function initDateSel(){
+  var sel=document.getElementById('dateSel');
+  if(!sel || !DATA || !DATA.meta || !DATA.meta.dates) return;
+  var dates=DATA.meta.dates.slice().sort().reverse();
+  dates.forEach(function(d){
+    var o=document.createElement('option');
+    o.value=d; o.textContent=d;
+    sel.appendChild(o);
+  });
+  sel.onchange=function(){
+    var v=this.value;
+    if(v===DATE) return;
+    var prev=DATE;
+    DATE=v;
+    PAGE=1;
+    var key=v||'latest';
+    if(DATA_CACHE[key]){ applyData(DATA_CACHE[key]); return; }
+    var url=v?('data/tab5_data_'+v+'.json'):'data/tab5_data.json';
+    fetch(url).then(function(r){return r.json();}).then(function(d){
+      DATA_CACHE[key]=d;
+      applyData(d);
+    }).catch(function(){
+      DATE=prev;
+      sel.value=prev;
+      alert('历史数据加载失败：'+url);
+    });
+  };
+}
+
+function applyData(d){
+  DATA=d;
+  initPlateSel();
+  renderWeights();
+  renderSectors();
+  renderStocks();
+  document.getElementById('stockHint').textContent=DATA.meta.nStocks+' 只 × '+DATA.meta.latestDate;
+  var tag=document.getElementById('secDateTag');
+  if(tag) tag.textContent=(!DATE || DATE===LATEST_DATE)?'最新完整日':'历史日';
 }
 
 function renderSectors(){
@@ -249,6 +318,7 @@ document.getElementById('orderSeg').querySelectorAll('button').forEach(function(
 
 fetch('data/tab5_data.json').then(function(r){return r.json();}).then(function(d){
   DATA=d;
+  LATEST_DATE=d.meta.latestDate;
   chart=echarts.init(document.getElementById('secChart'));
   chart.on('click', function (params) {
     if (params && params.data && params.data.c && window.BoardLink) {
@@ -256,7 +326,9 @@ fetch('data/tab5_data.json').then(function(r){return r.json();}).then(function(d
     }
   });
   initSigSeg();
+  initDateSel();
   initPlateSel();
+  renderWeights();
   renderSectors();
   renderStocks();
   document.getElementById('stockHint').textContent=DATA.meta.nStocks+' 只 × '+DATA.meta.latestDate;
