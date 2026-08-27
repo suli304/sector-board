@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tab4 日内形态 - 双视图</title>
+<script src="vendor/echarts.min.js"></script>
+<script src="linkage.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#0f1420; color:#d8e0ee; }
+  .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:12px 16px; background:#171e2e; border-bottom:1px solid #26324a; }
+  .topbar .title { font-size:15px; font-weight:600; color:#e8eefc; margin-right:6px; }
+  .ctrl { display:flex; align-items:center; gap:6px; font-size:13px; color:#9fb0cc; }
+  .ctrl input[type=text] { width:110px; background:#0f1420; border:1px solid #2a3a55; color:#d8e0ee; padding:5px 8px; border-radius:5px; font-size:13px; }
+  select { background:#0f1420; border:1px solid #2a3a55; color:#d8e0ee; padding:5px 8px; border-radius:5px; font-size:13px; max-width:180px; }
+  .seg { display:flex; background:#0f1420; border:1px solid #2a3a55; border-radius:6px; overflow:hidden; }
+  .seg button { background:transparent; border:none; color:#9fb0cc; padding:5px 12px; font-size:13px; cursor:pointer; }
+  .seg button.active { background:#2d5cff; color:#fff; }
+  .chip { padding:4px 10px; border-radius:20px; font-size:12px; cursor:pointer; border:1px solid #2a3a55; color:#9fb0cc; background:transparent; }
+  .chip.active { background:#2d5cff; color:#fff; border-color:#2d5cff; }
+  .wrap { padding:10px 16px; }
+  #chartBox { width:100%; height:640px; background:#0f1420; }
+  .formbar { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .fcard { background:#171e2e; border:1px solid #26324a; border-radius:8px; padding:8px 12px; font-size:12px; min-width:120px; }
+  .fcard b { color:#ffd76a; }
+  .fcard .st { color:#ff5d7a; font-weight:600; margin-left:4px; }
+  .fcard.off { opacity:0.35; }
+  .tip { color:#6b7a96; font-size:12px; margin-top:6px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="title">④ 日内形态</span>
+  <div class="ctrl"><input type="text" id="searchBox" placeholder="搜索代码/名称"></div>
+  <select id="stockSel"></select>
+  <div class="seg" id="dateSeg"></div>
+  <span class="ctrl">形态筛选</span>
+  <div class="seg" id="formSeg">
+    <button data-f="eilo" class="chip active">先进后出</button>
+    <button data-f="tail" class="chip active">尾盘突袭</button>
+    <button data-f="pattr" class="chip active">价格吸引</button>
+    <button data-f="pvd" class="chip active">量价背离</button>
+    <button data-f="osc" class="chip active">资金震荡</button>
+    <!-- B09/G-005: abn 4 项（3倍异常/尾盘异常/连续异常/收盘异常） -->
+    <button data-f="abn3x" class="chip active">3倍异常</button>
+    <button data-f="abntail" class="chip active">尾盘异常</button>
+    <button data-f="abncont" class="chip active">连续异常</button>
+    <button data-f="abncls" class="chip active">收盘异常</button>
+  </div>
+</div>
+<div class="wrap">
+  <div id="chartBox"></div>
+  <div class="formbar" id="formBar"></div>
+  <div class="tip" id="tipBox"></div>
+</div>
+<script>
+var DATA=null, DATE=null, STOCK=null;
+var chart=null;
+var FORM_COLORS={eilo:'#5da2ff',tail:'#ffd76a',pattr:'#c08bff',pvd:'#ff8a5d',osc:'#2dffa0',abn3x:'#ff5a5a',abntail:'#ffa15d',abncont:'#ffd700',abncls:'#ff69b4'};
+var FORM_NAMES={eilo:'先进后出',tail:'尾盘突袭',pattr:'价格吸引',pvd:'量价背离',osc:'资金震荡',abn3x:'3倍异常',abntail:'尾盘异常',abncont:'连续异常',abncls:'收盘异常'};
+
+function fmtAmt(v){
+  if(v==null) return '-';
+  var a=Math.abs(v), s=v<0?'-':'';
+  if(a>=1e9) return s+(a/1e9).toFixed(2)+'B';
+  if(a>=1e6) return s+(a/1e6).toFixed(1)+'M';
+  return s+(a/1e3).toFixed(0)+'K';
+}
+function fmtPct(v){ return v==null?'-':v.toFixed(2)+'%'; }
+
+function activeForms(){
+  var arr=[];
+  var btns=document.querySelectorAll('#formSeg button');
+  for(var i=0;i<btns.length;i++) if(btns[i].classList.contains('active')) arr.push(btns[i].dataset.f);
+  return arr;
+}
+function stockPass(st){
+  var forms=activeForms();
+  var day=st.d[DATE];
+  if(!day) return false;
+  for(var i=0;i<forms.length;i++){
+    var f=day.forms[forms[i]];
+    if(f && f.t) return true;
+  }
+  return false;
+}
+function fillStockList(){
+  var sel=document.getElementById('stockSel');
+  var q=document.getElementById('searchBox').value.trim().toLowerCase();
+  sel.innerHTML='';
+  var count=0;
+  for(var i=0;i<DATA.stocks.length;i++){
+    var st=DATA.stocks[i];
+    if(!stockPass(st)) continue;
+    if(q && st.c.toLowerCase().indexOf(q)<0 && st.n.indexOf(q)<0) continue;
+    var op=document.createElement('option');
+    op.value=st.c; op.textContent=st.c+' '+st.n;
+    sel.appendChild(op); count++;
+  }
+  if(count===0){
+    var op=document.createElement('option');
+    op.value=''; op.textContent='无匹配';
+    sel.appendChild(op);
+  }
+  if(STOCK && sel.querySelector('option[value="'+STOCK+'"]')) sel.value=STOCK;
+  else STOCK=sel.value||(count?DATA.stocks[0].c:null);
+}
+function getStock(c){ for(var i=0;i<DATA.stocks.length;i++) if(DATA.stocks[i].c===c) return DATA.stocks[i]; return null; }
+
+function render(){
+  if(!DATA) return;
+  var st=getStock(STOCK); if(!st){ document.getElementById('tipBox').textContent='无匹配标的'; return; }
+  var day=st.d[DATE]; if(!day){ document.getElementById('tipBox').textContent='该标的本日无分钟数据'; return; }
+  var times=DATA.meta.times;
+  var inflow=[], cum=[], main=[], inst=[], big=[], sml=[];
+  var c=0;
+  for(var i=0;i<day.m.length;i++){
+    var v=day.m[i];
+    inflow.push(v[0]);
+    c+=v[0]; cum.push(c);
+    main.push(v[1]); inst.push(v[2]);
+    big.push(v[1]-v[2]); sml.push(v[3]);
+  }
+  // 形态色块
+  var forms=day.forms;
+  var areas=[];
+  var idxTail=times.indexOf('15:50'), idxEnd=times.length-1;
+  if(forms.tail.t){ areas.push([{name:'尾盘突袭',xAxis:idxTail,yAxis:'min',itemStyle:{color:'rgba(255,215,106,0.15)'}},{xAxis:idxEnd,yAxis:'max'}]); }
+  if(forms.eilo.t){ areas.push([{name:'先进后出',xAxis:0,yAxis:'min',itemStyle:{color:'rgba(93,162,255,0.12)'}},{xAxis:30,yAxis:'max'}]); }
+  if(forms.pattr.t){ areas.push([{name:'价格吸引',xAxis:0,yAxis:'min',itemStyle:{color:'rgba(192,139,255,0.08)'}},{xAxis:idxEnd,yAxis:'max'}]); }
+  if(forms.pvd.t){ areas.push([{name:'量价背离',xAxis:0,yAxis:'min',itemStyle:{color:'rgba(255,138,93,0.08)'}},{xAxis:idxEnd,yAxis:'max'}]); }
+  if(forms.osc.t){ areas.push([{name:'资金震荡',xAxis:0,yAxis:'min',itemStyle:{color:'rgba(45,255,160,0.06)'}},{xAxis:idxEnd,yAxis:'max'}]); }
+  var markArea={silent:true,itemStyle:{},label:{show:true,color:'#9fb0cc',fontSize:10},data:areas};
+  chart.setOption({
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
+    axisPointer:{link:[{xAxisIndex:'all'}]},
+    grid:[{left:70,right:70,top:40,height:'52%'},{left:70,right:70,top:'66%',height:'28%'}],
+    xAxis:[
+      {type:'category',data:times,gridIndex:0,axisLabel:{color:'#9fb0cc',interval:29},axisLine:{lineStyle:{color:'#26324a'}}},
+      {type:'category',data:times,gridIndex:1,axisLabel:{color:'#9fb0cc',interval:29},axisLine:{lineStyle:{color:'#26324a'}}}
+    ],
+    yAxis:[
+      {type:'value',name:'净流入',gridIndex:0,axisLabel:{color:'#9fb0cc',formatter:function(v){return fmtAmt(v);}},splitLine:{lineStyle:{color:'#26324a'}}},
+      {type:'value',name:'累计',gridIndex:0,axisLabel:{color:'#6b7a96',formatter:function(v){return fmtAmt(v);}},splitLine:{show:false}},
+      {type:'value',name:'分档',gridIndex:1,axisLabel:{color:'#9fb0cc',formatter:function(v){return fmtAmt(v);}},splitLine:{lineStyle:{color:'#26324a'}}}
+    ],
+    dataZoom:[
+      {type:'inside',xAxisIndex:[0,1],start:0,end:100},
+      {type:'slider',xAxisIndex:[0,1],bottom:2,height:16}
+    ],
+    series:[
+      {name:'分钟净流入',type:'bar',xAxisIndex:0,yAxisIndex:0,data:inflow.map(function(v){return {value:v,itemStyle:{color:v>=0?'#ff5d7a':'#2dffa0'}};}),barWidth:'70%'},
+      {name:'累计净流入',type:'line',xAxisIndex:0,yAxisIndex:1,data:cum,showSymbol:false,lineStyle:{color:'#ffd76a',width:2},itemStyle:{color:'#ffd76a'},markArea:markArea},
+      {name:'机构(super)',type:'bar',stack:'f',xAxisIndex:1,yAxisIndex:2,data:inst,itemStyle:{color:'#8b2f3f'},barWidth:'80%'},
+      {name:'大单(big)',type:'bar',stack:'f',xAxisIndex:1,yAxisIndex:2,data:big,itemStyle:{color:'#d95f6f'},barWidth:'80%'},
+      {name:'散户(sml)',type:'bar',stack:'f',xAxisIndex:1,yAxisIndex:2,data:sml,itemStyle:{color:'#4a7a9a'},barWidth:'80%'}
+    ]
+  },true);
+  // 形态卡片
+  var fb=document.getElementById('formBar');
+  var html='<span style="color:#9fb0cc;font-size:12px">'+(st.c+' '+st.n+' '+DATE+' 收盘 '+day.close+' ('+fmtPct(day.chg)+') 净流入 '+fmtAmt(day.net)+')</span>');
+  for(var k in forms){
+    var f=forms[k];
+    var cls=f.t?'':' off';
+    html+='<div class="fcard'+cls+'"><span style="color:'+FORM_COLORS[k]+'">●</span> '+FORM_NAMES[k]+(f.t?'<span class="st">'+f.s+(f.r?' · '+f.r:'')+'</span>':'<span style="color:#56627a"> 未触发</span>')+'</div>';
+  }
+  fb.innerHTML=html;
+  document.getElementById('tipBox').textContent='上=分钟净流入柱（红入/绿出）+累计曲线；下=分档资金堆积（机构/大单/散户）；色块=形态触发窗口（尾盘突袭15:50-16:00黄色）；同时间轴联动可缩放';
+}
+
+function init(){
+  var sel=document.getElementById('stockSel');
+  sel.addEventListener('change',function(){
+    STOCK=sel.value; render();
+    /* C9 联动：选中个股 → 主图切该个股 */
+    if (STOCK && window.BoardLink) window.BoardLink.emitNav(STOCK, 'stock', { tab: 'tab-main' });
+  });
+  document.getElementById('searchBox').addEventListener('input',function(){ fillStockList(); if(STOCK) render(); });
+  document.getElementById('dateSeg').addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b) return;
+    DATE=b.dataset.d;
+    var arr=document.querySelectorAll('#dateSeg button');
+    for(var i=0;i<arr.length;i++) arr[i].classList.toggle('active',arr[i]===b);
+    fillStockList(); render();
+  });
+  document.getElementById('formSeg').addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b) return;
+    b.classList.toggle('active');
+    fillStockList(); render();
+  });
+}
+function load(){
+  fetch('data/tab4_data.json').then(function(r){return r.json();}).then(function(d){
+    DATA=d; DATE=DATA.meta.dates[0];
+    // G3b：日期按钮动态生成（随 meta.dates 自动累积，无硬编码）
+    var seg=document.getElementById('dateSeg');
+    seg.innerHTML='';
+    DATA.meta.dates.forEach(function(dt,i){
+      var b=document.createElement('button');
+      b.dataset.d=dt;
+      b.textContent=(Number(dt.slice(5,7)))+'/'+(Number(dt.slice(8,10)));
+      if(i===0) b.className='active';
+      seg.appendChild(b);
+    });
+    chart=echarts.init(document.getElementById('chartBox'));
+    fillStockList();
+    init();
+    render();
+  });
+}
+window.addEventListener('resize',function(){ if(chart) chart.resize(); });
+load();
+</script>
+</body>
+</html>

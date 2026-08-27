@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tab3 板块轮动 - 三视角</title>
+<script src="vendor/echarts.min.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#0f1420; color:#d8e0ee; }
+  .topbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:12px 16px; background:#171e2e; border-bottom:1px solid #26324a; }
+  .topbar .title { font-size:15px; font-weight:600; color:#e8eefc; margin-right:8px; }
+  .seg { display:flex; background:#0f1420; border:1px solid #2a3documentationa55; border-radius:6px; overflow:hidden; }
+  .seg button { background:transparent; border:none; color:#9fb0cc; padding:6px 14px; font-size:13px; cursor:pointer; }
+  .seg button.active { background:#2d5cff; color:#fff; }
+  .ctrl { display:flex; align-items:center; gap:8px; font-size:13px; color:#9fb0cc; }
+  .ctrl input[type=range] { width:180px; }
+  .ctrl .dt { color:#ffd76a; font-weight:600; min-width:86px; }
+  .sw { display:flex; align-items:center; gap:4px; cursor:pointer; user-select:none; }
+  .sw input { accent-color:#2d5cff; }
+  .wrap { padding:12px 16px; }
+  #chartBox { width:100%; height:600px; background:#0f1420; }
+  .legend { display:flex; gap:16px; flex-wrap:wrap; margin-top:8px; font-size:12px; color:#9fb0cc; }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:4px; vertical-align:-1px; }
+  .tip { color:#6b7a96; font-size:12px; margin-top:6px; }
+  .tooltip-sec { font-size:12px; line-height:1.7; }
+  .tooltip-sec b { color:#ffd76a; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="title">③ 板块轮动</span>
+  <div class="seg" id="periodSeg">
+    <button data-p="daily" class="active">日</button>
+    <button data-p="weekly">周</button>
+    <button data-p="monthly">月</button>
+  </div>
+  <div class="seg" id="viewSeg">
+    <button data-v="rank" class="active">排名</button>
+    <button data-v="abs">绝对值</button>
+    <button data-v="accel">加速度</button>
+  </div>
+  <div class="seg" id="rankSeg" style="display:none">
+    <button data-r="top" class="active">流入Top15</button>
+    <button data-r="bottom">流出Top15</button>
+  </div>
+  <div class="ctrl">
+    <span>时间</span>
+    <input type="range" id="timeSlider" min="0" max="0" value="0">
+    <span class="dt" id="dateLabel">-</span>
+  </div>
+  <label class="sw"><input type="checkbox" id="colorSw" checked>颜色</label>
+  <label class="sw"><input type="checkbox" id="areaSw" checked>面积</label>
+  <!-- B09/G-027: 市值归一化开关（norm_ratio 字段已下发，补渲染+排序切换） -->
+  <label class="sw"><input type="checkbox" id="normSw">市值归一化</label>
+</div>
+<div class="wrap">
+  <div id="chartBox"></div>
+  <div class="legend" id="legendBox"></div>
+  <div class="tip" id="tipBox"></div>
+</div>
+<script>
+var DATA = null, PERIOD = 'daily', VIEW = 'rank', RANKMODE = 'top';
+var chart = null;
+
+function qmap(k){ return DATA.meta.quadMap[k]; }
+function qcolor(k){
+  return ['#2dffa0','#ffb84d','#ff5d7a','#5da2ff'][k] || '#888';
+}
+function fmtAmt(v){
+  if(v==null) return '-';
+  var a=Math.abs(v), s=v<0?'-':'';
+  if(a>=1e9) return s+(a/1e9).toFixed(2)+'B';
+  if(a>=1e6) return s+(a/1e6).toFixed(1)+'M';
+  return s+(a/1e3).toFixed(0)+'K';
+}
+function fmtRate(v){ return v==null?'-':(v*100).toFixed(2)+'%'; }
+
+function load(){
+  fetch('data/tab3_data.json').then(function(r){return r.json();}).then(function(d){
+    DATA=d; PERIOD='daily';
+    var dates=DATA.periods.daily.dates;
+    document.getElementById('timeSlider').max=dates.length-1;
+    document.getElementById('timeSlider').value=dates.indexOf(DATA.periods.daily.latest);
+    document.getElementById('timeSlider').value=Math.max(0,document.getElementById('timeSlider').value);
+    render();
+  });
+}
+
+function currentRows(){
+  var p=DATA.periods[PERIOD];
+  var di=+document.getElementById('timeSlider').value;
+  var date=p.dates[di];
+  document.getElementById('dateLabel').textContent=date;
+  var rows=[];
+  for(var i=0;i<p.plates.length;i++){
+    var pl=p.plates[i];
+    var arr=pl.seq[di]; if(!arr) continue;
+    rows.push({c:pl.c,n:pl.n,idx:di,
+      in_flow:arr[1], flow_rate:arr[2], accel:arr[3],
+      rank_inflow:arr[4], rank_flowrate:arr[5], rank_change:arr[6],
+      quad:arr[7], norm_ratio:arr[8]});
+  }
+  return {rows:rows,date:date,di:di};
+}
+
+function colorOf(r){
+  if(!document.getElementById('colorSw').checked) return '#2d5cff';
+  return qcolor(r.quad);
+}
+function areaOf(r){
+  if(!document.getElementById('areaSw').checked) return 14;
+  var a=Math.abs(r.in_flow||0);
+  var max=4e9; return 6+Math.sqrt(Math.min(a,max)/max)*40;
+}
+
+function renderRank(){
+  var cur=currentRows(), rows=cur.rows.slice();
+  /* B09/G-027: 市值归一化切换排序与取值 */
+  var norm=document.getElementById('normSw').checked;
+  rows.sort(function(a,b){ return norm ? (b.norm_ratio==null?-1:b.norm_ratio)-(a.norm_ratio==null?-1:a.norm_ratio) : b.in_flow-a.in_flow; });
+  var list = RANKMODE==='top' ? rows.slice(0,15) : rows.slice(-15).reverse();
+  var names=[], vals=[], cols=[], info=[];
+  for(var i=0;i<list.length;i++){
+    var r=list[i];
+    names.push(r.n);
+    vals.push(norm ? (r.norm_ratio==null?0:r.norm_ratio) : r.in_flow/1e8);
+    cols.push(colorOf(r));
+    info.push(r);
+  }
+  chart.setOption({
+    grid:{left:180,right:80,top:20,bottom:40},
+    tooltip:{trigger:'axis',axisPointer:{type:'shadow'},
+      formatter:function(ps){
+        var r=info[ps[0].dataIndex];
+        return '<div class="tooltip-sec"><b>'+r.n+'</b> ('+cur.date+')<br>净流入：'+fmtAmt(r.in_flow)+'<br>流速：'+fmtRate(r.flow_rate)+'<br>归一化：'+(r.norm_ratio==null?'-':r.norm_ratio.toFixed(3))+'<br>流入排名：'+(r.rank_inflow||'-')+' / 流速排名：'+(r.rank_flowrate||'-')+'<br>排名变化：'+(r.rank_change==null?'-':r.rank_change)+'<br>象限：'+qmap(r.quad)+'</div>';
+      }},
+    xAxis:{type:'value',name:norm?'归一化值':'净流入(亿)',axisLabel:{color:'#9fb0cc'},splitLine:{lineStyle:{color:'#26324a'}}},
+    yAxis:{type:'category',data:names,axisLabel:{color:'#d8e0ee',fontSize:11},axisLine:{lineStyle:{color:'#26324a'}}},
+    series:[{type:'bar',data:vals.map(function(v,i){return {value:v,itemStyle:{color:cols[i]}};}),barWidth:12,
+      label:{show:true,position:'right',formatter:function(p){return norm ? (info[p.dataIndex].norm_ratio==null?'-':info[p.dataIndex].norm_ratio.toFixed(3)) : fmtAmt(list[p.dataIndex].in_flow);},color:'#9fb0cc',fontSize:11}}]
+  },true);
+  document.getElementById('tipBox').textContent='排名视角：'+cur.date+' '+ (RANKMODE==='top'?'净流入':'净流出')+' Top15（横条颜色=四象限，'+cur.rows.length+' 板块'+(norm?'，市值归一化排序':'')+'）';
+}
+
+function renderAbs(){
+  var cur=currentRows(), rows=cur.rows.slice();
+  rows.sort(function(a,b){ return b.in_flow-a.in_flow; });
+  var pts=[];
+  for(var i=0;i<rows.length;i++){
+    var r=rows[i];
+    pts.push({name:r.n,value:[i, r.flow_rate==null?0:r.flow_rate*100, r.in_flow], itemStyle:{color:colorOf(r)}, symbolSize:areaOf(r),
+      quad:r.quad, fr:r.flow_rate, ri:r.rank_inflow, rc:r.rank_change, nr:r.norm_ratio});
+  }
+  chart.setOption({
+    grid:{left:70,right:30,top:30,bottom:50},
+    tooltip:{formatter:function(p){
+      var d=p.data; if(d==null||d.quad==null) return '';
+      return '<div class="tooltip-sec"><b>'+d.name+'</b> ('+cur.date+')<br>净流入：'+fmtAmt(d.value[2])+'<br>流速：'+fmtRate(d.fr)+'<br>归一化：'+(d.nr==null?'-':d.nr.toFixed(3))+'<br>流入排名：'+(d.ri||'-')+'<br>排名变化：'+(d.rc==null?'-':d.rc)+'<br>象限：'+qmap(d.quad)+'</div>';
+    }},
+    xAxis:{type:'value',name:'净流入排序',min:-1,max:rows.length,axisLabel:{color:'#9fb0cc'},splitLine:{lineStyle:{color:'#26324a'}}},
+    yAxis:{type:'value',name:'流速 %',axisLabel:{color:'#9fb0cc',formatter:function(v){return v.toFixed(2)+'%';}},splitLine:{lineStyle:{color:'#26324a'}}},
+    series:[{type:'scatter',data:pts}]
+  },true);
+  document.getElementById('tipBox').textContent='绝对值视角：x=按净流入降序，y=流速，气泡面积=净流入额（开关可关），颜色=四象限（开关可关）';
+}
+
+function renderAccel(){
+  var cur=currentRows(), p=DATA.periods[PERIOD];
+  var di=cur.di, prevDi=di-1;
+  var pts=[], lines=[];
+  var hasPrev = prevDi>=0;
+  var maxAbs=1;
+  for(var i=0;i<p.plates.length;i++){
+    var pl=p.plates[i];
+    var arr=pl.seq[di]; if(!arr) continue;
+    var r={c:pl.c,n:pl.n,in_flow:arr[1],flow_rate:arr[2],accel:arr[3],quad:arr[7],ri:arr[4],rc:arr[6],norm_ratio:arr[8]};
+    if(Math.abs(r.in_flow||0)>maxAbs) maxAbs=Math.abs(r.in_flow||0);
+    var pr=null;
+    if(hasPrev && pl.seq[prevDi]){
+      var a2=pl.seq[prevDi];
+      pr={fr:a2[2],acc:a2[3]};
+    }
+    pts.push({name:r.n,value:[r.flow_rate==null?0:r.flow_rate*100, r.accel==null?0:r.accel*100], in_flow:r.in_flow,
+      itemStyle:{color:colorOf(r)}, symbolSize:areaOf(r), quad:r.quad, fr:r.flow_rate, acc:r.accel, ri:r.ri, rc:r.rc, nr:r.norm_ratio});
+    if(pr && pr.fr!=null && pr.acc!=null){
+      lines.push({coords:[[pr.fr*100, pr.acc*100],[r.flow_rate==null?0:r.flow_rate*100, r.accel==null?0:r.accel*100]]});
+    }
+  }
+  chart.setOption({
+    grid:{left:70,right:30,top:30,bottom:50},
+    tooltip:{formatter:function(p){
+      var d=p.data; if(d==null||d.quad==null) return '';
+      return '<div class="tooltip-sec"><b>'+d.name+'</b> ('+cur.date+')<br>流速：'+fmtRate(d.fr)+'<br>加速度：'+fmtRate(d.acc)+'<br>净流入：'+fmtAmt(d.in_flow)+'<br>归一化：'+(d.nr==null?'-':d.nr.toFixed(3))+'<br>流入排名：'+(d.ri||'-')+'<br>排名变化：'+(d.rc==null?'-':d.rc)+'<br>象限：'+qmap(d.quad)+'</div>';
+    }},
+    xAxis:{type:'value',name:'流速 %',axisLabel:{color:'#9fb0cc'},splitLine:{lineStyle:{color:'#26324a'}}},
+    yAxis:{type:'value',name:'加速度 %',axisLabel:{color:'#9fb0cc'},splitLine:{lineStyle:{color:'#26324a'}}},
+    series:[
+      {type:'lines',data:lines,lineStyle:{color:'#2a3a55',width:1,opacity:0.6},silent:true},
+      {type:'scatter',data:pts}
+    ]
+  },true);
+  document.getElementById('tipBox').textContent='加速度视角：x=流速，y=加速度（Δ流速），灰线=上期→本期动量方向，点大小=净流入额，颜色=四象限';
+}
+
+function renderLegend(){
+  var qs=DATA.meta.quadMap;
+  var html='';
+  for(var k=0;k<qs.length;k++){
+    html+='<span><i style="background:'+qcolor(k)+'"></i>'+qs[k]+'</span>';
+  }
+  document.getElementById('legendBox').innerHTML=html;
+}
+
+function render(){
+  if(!DATA) return;
+  if(!chart) chart=echarts.init(document.getElementById('chartBox'));
+  renderLegend();
+  if(VIEW==='rank') renderRank();
+  else if(VIEW==='abs') renderAbs();
+  else renderAccel();
+}
+
+document.getElementById('periodSeg').addEventListener('click',function(e){
+  var b=e.target.closest('button'); if(!b) return;
+  PERIOD=b.dataset.p;
+  var arr=document.querySelectorAll('#periodSeg button');
+  for(var i=0;i<arr.length;i++) arr[i].classList.toggle('active',arr[i]===b);
+  var p=DATA.periods[PERIOD];
+  var sl=document.getElementById('timeSlider');
+  sl.max=p.dates.length-1;
+  var idx=p.dates.indexOf(p.latest); sl.value=Math.max(0,idx);
+  render();
+});
+document.getElementById('viewSeg').addEventListener('click',function(e){
+  var b=e.target.closest('button'); if(!b) return;
+  VIEW=b.dataset.v;
+  var arr=document.querySelectorAll('#viewSeg button');
+  for(var i=0;i<arr.length;i++) arr[i].classList.toggle('active',arr[i]===b);
+  document.getElementById('rankSeg').style.display = VIEW==='rank' ? 'flex' : 'none';
+  render();
+});
+document.getElementById('rankSeg').addEventListener('click',function(e){
+  var b=e.target.closest('button'); if(!b) return;
+  RANKMODE=b.dataset.r;
+  var arr=document.querySelectorAll('#rankSeg button');
+  for(var i=0;i<arr.length;i++) arr[i].classList.toggle('active',arr[i]===b);
+  if(VIEW==='rank') render();
+});
+document.getElementById('timeSlider').addEventListener('input',function(){ if(VIEW) render(); });
+document.getElementById('colorSw').addEventListener('change',render);
+document.getElementById('areaSw').addEventListener('change',render);
+document.getElementById('normSw').addEventListener('change',render);
+window.addEventListener('resize',function(){ if(chart) chart.resize(); });
+load();
+</script>
+</body>
+</html>

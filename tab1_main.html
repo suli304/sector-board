@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>板块信号看板 v2.0 — 主图（C3 完善）</title>
+<script src="vendor/echarts.min.js"></script>
+<script src="linkage.js"></script>
+<style>
+:root { --bg:#0f1420; --panel:#1a2233; --border:#2c3a55; --text:#e8eef7; --text-dim:#8fa3c0; --accent:#3d9fff; --up:#ef4444; --down:#22c55e; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; min-height:100vh; }
+header { padding:10px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+header h1 { font-size:16px; font-weight:600; }
+header .meta { font-size:11px; color:var(--text-dim); }
+nav#tabNav { display:flex; gap:4px; padding:6px 18px 0; border-bottom:1px solid var(--border); }
+nav#tabNav button { background:transparent; color:var(--text-dim); border:1px solid transparent; border-bottom:none; padding:7px 16px; font-size:13px; cursor:pointer; border-radius:8px 8px 0 0; }
+nav#tabNav button.active { color:var(--accent); border-color:var(--border); background:var(--panel); font-weight:600; }
+.layout { display:flex; gap:12px; padding:12px 18px; }
+.panel { width:240px; flex-shrink:0; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:12px; height:fit-content; }
+.panel h3 { font-size:13px; margin-bottom:8px; color:var(--accent); }
+.panel .grp { margin-bottom:14px; }
+.panel .grp label { display:block; font-size:12px; color:var(--text-dim); margin-bottom:4px; }
+#sectorList { display:flex; flex-direction:column; gap:4px; max-height:200px; overflow-y:auto; }
+#sectorList button { background:transparent; border:1px solid var(--border); color:var(--text); border-radius:6px; padding:6px 8px; font-size:12px; cursor:pointer; text-align:left; }
+#sectorList button:hover { border-color:var(--accent); }
+#sectorList button.active { background:rgba(61,159,255,.15); border-color:var(--accent); color:var(--accent); font-weight:600; }
+select { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px; font-size:12px; }
+.seg { display:flex; gap:4px; }
+.seg button { flex:1; background:var(--bg); border:1px solid var(--border); color:var(--text-dim); border-radius:6px; padding:5px 4px; font-size:11px; cursor:pointer; }
+.seg button.active { background:rgba(61,159,255,.18); border-color:var(--accent); color:var(--accent); font-weight:600; }
+.switchRow { display:flex; align-items:center; gap:6px; font-size:12px; padding:2px 0; color:var(--text); cursor:pointer; }
+.switchRow input { accent-color:var(--accent); }
+.switchRow .maColor { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:2px; }
+#chartBox { flex:1; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:8px; }
+#mainChart { width:100%; height:calc(100vh - 160px); min-height:480px; }
+#statusBar { padding:6px 18px; border-top:1px solid var(--border); font-size:11px; color:var(--text-dim); }
+.legend { display:flex; gap:10px; flex-wrap:wrap; font-size:11px; color:var(--text-dim); padding:4px 0; }
+.legend span { display:inline-flex; align-items:center; gap:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 板块信号看板 v2.0 · 主图 R1-R4 合一</h1>
+  <div class="meta">C3 · 三周期（日/周/月）× 三口径（主力/全量/散户）· 数据 tab1_data.json</div>
+</header>
+<nav id="tabNav">
+  <button data-tab="tab-main" class="active">① 主图</button>
+  <button data-tab="tab-divergence">② 背离</button>
+  <button data-tab="tab-rotation">③ 板块轮动</button>
+  <button data-tab="tab-intraday">④ 日内形态</button>
+  <button data-tab="tab-composite">⑤ 综合异常打分</button>
+  <button data-tab="tab-data">⑥ 数据看板</button>
+</nav>
+<div class="layout">
+  <div class="panel">
+    <div class="grp">
+      <h3>板块 / 个股</h3>
+      <label>板块列表（点击切换）</label>
+      <div id="sectorList"></div>
+    </div>
+    <div class="grp">
+      <label>个股（选板块后可选）</label>
+      <select id="stockSelect"><option value="">— 不选（显示板块）—</option></select>
+    </div>
+    <div class="grp">
+      <h3>周期切换</h3>
+      <div class="seg" id="periodSeg">
+        <button data-period="daily" class="active">日K</button>
+        <button data-period="weekly">周K</button>
+        <button data-period="monthly">月K</button>
+      </div>
+    </div>
+    <div class="grp">
+      <h3>口径切换</h3>
+      <div class="seg" id="caliberSeg">
+        <button data-caliber="main" class="active">主力</button>
+        <button data-caliber="total">全量</button>
+        <button data-caliber="retail">散户</button>
+      </div>
+    </div>
+    <div class="grp">
+      <h3>资金均线（可开关）</h3>
+      <label class="switchRow"><input type="checkbox" id="swC" checked><span class="maColor" style="background:#ffd700"></span>累计资金 C(t)</label>
+      <label class="switchRow"><input type="checkbox" id="swMA5" checked><span class="maColor" style="background:#f59e0b"></span>资金 MA5</label>
+      <label class="switchRow"><input type="checkbox" id="swMA10" checked><span class="maColor" style="background:#3d9fff"></span>资金 MA10</label>
+      <label class="switchRow"><input type="checkbox" id="swMA20" checked><span class="maColor" style="background:#a78bfa"></span>资金 MA20</label>
+      <label class="switchRow"><input type="checkbox" id="swMA55" checked><span class="maColor" style="background:#f472b6"></span>资金 MA55</label>
+    </div>
+    <div class="grp">
+      <h3>股价 K 线</h3>
+      <label class="switchRow"><input type="checkbox" id="swKline" checked>显示 K 线 + 股价 MA5/10/20/55</label>
+    </div>
+    <div class="grp">
+      <h3>量能图例</h3>
+      <div class="legend">
+        <span>○ 缩量</span><span>● 正常</span><span>▲ 温和放量</span><span>● 放量</span>
+        <span style="color:#f59e0b">★ 显著放量</span><span style="color:#ef4444">★★★ 极端放量</span>
+        <span style="background:#ef4444;color:#fff;padding:0 4px;border-radius:3px">核弹 ≥20x</span>
+      </div>
+    </div>
+    <div class="grp">
+      <h3>共振图例</h3>
+      <div class="legend"><span style="color:var(--down)">▲ 共振买入</span><span style="color:var(--up)">▼ 共振卖出</span></div>
+    </div>
+  </div>
+  <div id="chartBox"><div id="mainChart"></div></div>
+</div>
+<div id="statusBar">数据: <span id="stData">加载中…</span> · 当前标的: <span id="stTarget">—</span> · 周期: <span id="stPeriod">日K</span> · 口径: <span id="stCaliber">主力</span></div>
+<script>
+(function () {
+  'use strict';
+
+  /* ============ 量能分级（方案 3.3：颜色+形状双编码） ============ */
+  var VOL_LEVELS = [
+    { min: 20,  key: '核弹',   color: '#ef4444', symbol: 'pin',   size: 20, label: '核弹' },
+    { min: 5,   key: '极端',   color: '#ef4444', symbol: 'star',  size: 13, label: '' },
+    { min: 4,   key: '强烈',   color: '#f97316', symbol: 'star',  size: 11, label: '' },
+    { min: 3,   key: '显著',   color: '#f59e0b', symbol: 'star',  size: 9,  label: '' },
+    { min: 2,   key: '放量',   color: '#3d9fff', symbol: 'circle', size: 8,  label: '' },
+    { min: 1.5, key: '温和',   color: '#7dd3fc', symbol: 'triangle', size: 8, label: '' },
+    { min: 1,   key: '正常',   color: '#94a3b8', symbol: 'circle', size: 0,  label: '' },
+    { min: 0.5, key: '正常缩量', color: '#cbd5e1', symbol: 'circle', size: 6, label: '' },
+    { min: 0,   key: '缩量',   color: '#64748b', symbol: 'circle', size: 5,  label: '' }
+  ];
+  function volStyle(r) {
+    for (var i = 0; i < VOL_LEVELS.length; i++) {
+      if (r >= VOL_LEVELS[i].min) return VOL_LEVELS[i];
+    }
+    return VOL_LEVELS[VOL_LEVELS.length - 1];
+  }
+
+  /* ============ 股价 MA 计算 ============ */
+  function sma(arr, n) {
+    var out = [];
+    for (var i = 0; i < arr.length; i++) {
+      if (i < n - 1) { out.push(null); continue; }
+      var s = 0;
+      for (var j = i - n + 1; j <= i; j++) s += arr[j];
+      out.push(+(s / n).toFixed(3));
+    }
+    return out;
+  }
+
+  var chart = echarts.init(document.getElementById('mainChart'));
+  var current = { code: null, level: 'sector', period: 'daily', caliber: 'main' };
+  var DATA = null;
+  var PERIOD_NAME = { daily: '日K', weekly: '周K', monthly: '月K' };
+  var CALIBER_NAME = { main: '主力', total: '全量', retail: '散户' };
+
+  function setStatus(msg) { document.getElementById('stData').textContent = msg; }
+  function setTarget(t) { document.getElementById('stTarget').textContent = t; }
+  function setPeriodLabel() { document.getElementById('stPeriod').textContent = PERIOD_NAME[current.period]; }
+  function setCaliberLabel() { document.getElementById('stCaliber').textContent = CALIBER_NAME[current.caliber]; }
+
+  /* 当前周期/口径下取序列 */
+  function getSeries(code) {
+    var pd = DATA.periods[current.period];
+    if (!pd || !pd[code]) return null;
+    return pd[code];
+  }
+
+  /* C10 降采样：>2000 点等间隔抽稀（方案 13.4 ②，防数据过载） */
+  var MAX_POINTS = 2000;
+  function _pickArr(a, idx) { return a ? idx.map(function (i) { return a[i]; }) : a; }
+  function _downsampleSeries(s) {
+    if (!s || !s.dates || s.dates.length <= MAX_POINTS) return s;
+    var n = s.dates.length, idx = [], i, ck;
+    for (i = 0; i < MAX_POINTS; i++) idx.push(Math.round(i * (n - 1) / (MAX_POINTS - 1)));
+    var o = { code: s.code, name: s.name, level: s.level, dates: _pickArr(s.dates, idx),
+              kline: { open: _pickArr(s.kline && s.kline.open, idx), high: _pickArr(s.kline && s.kline.high, idx),
+                       low: _pickArr(s.kline && s.kline.low, idx), close: _pickArr(s.kline && s.kline.close, idx),
+                       volume: _pickArr(s.kline && s.kline.volume, idx) },
+              volRatio: _pickArr(s.volRatio, idx), volLevel: _pickArr(s.volLevel, idx), res20_20: _pickArr(s.res20_20, idx), calibers: {} };
+    for (ck in s.calibers) {
+      var c = s.calibers[ck];
+      o.calibers[ck] = { flow: _pickArr(c.flow, idx), C: _pickArr(c.C, idx), MA5: _pickArr(c.MA5, idx),
+                         MA10: _pickArr(c.MA10, idx), MA20: _pickArr(c.MA20, idx), MA55: _pickArr(c.MA55, idx) };
+    }
+    return o;
+  }
+
+  function render(code) {
+    var s = _downsampleSeries(getSeries(code));
+    if (!s) { setStatus('无数据: ' + code); return; }
+    var d = s.dates, k = s.kline;
+    var dates = d;
+    var cb = s.calibers[current.caliber];
+    var C = cb.C, ma5 = cb.MA5, ma10 = cb.MA10, ma20 = cb.MA20, ma55 = cb.MA55;
+    var inflow = cb.flow;
+
+    /* K 线 MA（前端由 close 计算） */
+    var kma5 = sma(k.close, 5), kma10 = sma(k.close, 10), kma20 = sma(k.close, 20), kma55 = sma(k.close, 55);
+
+    /* 净流入柱：绿进红出（方案 3.2） */
+    var inflowBar = (inflow || []).map(function (v) {
+      if (v === null || v === undefined) return null;
+      return { value: v, itemStyle: { color: v >= 0 ? '#22c55e' : '#ef4444' } };
+    });
+
+    /* 量能标记（仅日线有 E2 信号；颜色+形状双编码） */
+    var volScatter = [], nukeScatter = [];
+    var volRatio = s.volRatio || [];
+    for (var i = 0; i < volRatio.length; i++) {
+      var r = volRatio[i];
+      if (r === null || r === undefined || r < 1.5) continue;
+      var st = volStyle(r);
+      var item = { value: [dates[i], r], symbolSize: st.size, itemStyle: { color: st.color }, symbol: st.symbol };
+      if (st.key === '核弹') {
+        item.label = { show: true, formatter: '【核弹】', color: '#fff', fontSize: 10, fontWeight: 'bold', backgroundColor: '#ef4444', borderRadius: 3, padding: [2, 4] };
+        item.z = 99;
+        nukeScatter.push(item);
+      } else {
+        volScatter.push(item);
+      }
+    }
+
+    /* 共振标记（仅日线有 res20_20） */
+    var resScatter = [];
+    var res20 = s.res20_20 || [];
+    for (var j = 0; j < res20.length; j++) {
+      var v = res20[j];
+      if (v === '共振买入') resScatter.push({ value: [dates[j], 0], symbol: 'triangle', symbolSize: 11, itemStyle: { color: '#22c55e' }, name: '共振买入' });
+      else if (v === '共振卖出') resScatter.push({ value: [dates[j], 0], symbol: 'triangle', symbolSize: 11, symbolRotate: 180, itemStyle: { color: '#ef4444' }, name: '共振卖出' });
+    }
+
+    /* 资金 + 股价 双轴 series */
+    var showC = document.getElementById('swC').checked;
+    var show5 = document.getElementById('swMA5').checked;
+    var show10 = document.getElementById('swMA10').checked;
+    var show20 = document.getElementById('swMA20').checked;
+    var show55 = document.getElementById('swMA55').checked;
+    var showK = document.getElementById('swKline').checked;
+
+    var fundSeries = [];
+    if (showC) fundSeries.push({ name: '累计资金 C(t)', type: 'line', data: C, smooth: true, showSymbol: false, lineStyle: { width: 2, color: '#ffd700' }, areaStyle: { opacity: 0.18, color: '#ffd700' }, yAxisIndex: 0, xAxisIndex: 0, connectNulls: false, z: 2 });
+    if (show5) fundSeries.push({ name: '资金MA5', type: 'line', data: ma5, smooth: true, showSymbol: false, lineStyle: { width: 1, color: '#f59e0b' }, yAxisIndex: 0, xAxisIndex: 0, connectNulls: false, z: 1 });
+    if (show10) fundSeries.push({ name: '资金MA10', type: 'line', data: ma10, smooth: true, showSymbol: false, lineStyle: { width: 1, color: '#3d9fff' }, yAxisIndex: 0, xAxisIndex: 0, connectNulls: false, z: 1 });
+    if (show20) fundSeries.push({ name: '资金MA20', type: 'line', data: ma20, smooth: true, showSymbol: false, lineStyle: { width: 1, color: '#a78bfa' }, yAxisIndex: 0, xAxisIndex: 0, connectNulls: false, z: 1 });
+    if (show55) fundSeries.push({ name: '资金MA55', type: 'line', data: ma55, smooth: true, showSymbol: false, lineStyle: { width: 1, color: '#f472b6' }, yAxisIndex: 0, xAxisIndex: 0, connectNulls: false, z: 1 });
+
+    var klineSeries = [];
+    if (showK) {
+      klineSeries.push({
+        name: PERIOD_NAME[current.period], type: 'candlestick', data: k.open.map(function (_, i) {
+          return [k.open[i], k.close[i], k.low[i], k.high[i]];
+        }), yAxisIndex: 1, xAxisIndex: 0, itemStyle: {
+          color: '#ef4444', color0: '#22c55e', borderColor: '#ef4444', borderColor0: '#22c55e'
+        }, z: 3
+      });
+      klineSeries.push({ name: '股价MA5', type: 'line', data: kma5, showSymbol: false, lineStyle: { width: 1, color: '#f59e0b' }, yAxisIndex: 1, xAxisIndex: 0, connectNulls: false, z: 2 });
+      klineSeries.push({ name: '股价MA10', type: 'line', data: kma10, showSymbol: false, lineStyle: { width: 1, color: '#3d9fff' }, yAxisIndex: 1, xAxisIndex: 0, connectNulls: false, z: 2 });
+      klineSeries.push({ name: '股价MA20', type: 'line', data: kma20, showSymbol: false, lineStyle: { width: 1, color: '#a78bfa' }, yAxisIndex: 1, xAxisIndex: 0, connectNulls: false, z: 2 });
+      klineSeries.push({ name: '股价MA55', type: 'line', data: kma55, showSymbol: false, lineStyle: { width: 1, color: '#f472b6' }, yAxisIndex: 1, xAxisIndex: 0, connectNulls: false, z: 2 });
+    }
+
+    /* 量能/共振标记挂到资金轴（若有） */
+    var extraSeries = [];
+    if (volScatter.length) extraSeries.push({ name: '量能', type: 'scatter', data: volScatter, xAxisIndex: 2, yAxisIndex: 3, z: 5 });
+    if (nukeScatter.length) extraSeries.push({ name: '核弹', type: 'effectScatter', data: nukeScatter, xAxisIndex: 2, yAxisIndex: 3, rippleEffect: { brushType: 'stroke', scale: 3 }, z: 99 });
+    if (resScatter.length) extraSeries.push({ name: '共振', type: 'scatter', data: resScatter, yAxisIndex: 0, xAxisIndex: 0, z: 6 });
+
+    var option = {
+      backgroundColor: 'transparent',
+      animation: true,
+      tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+      legend: { top: 2, textStyle: { color: '#8fa3c0', fontSize: 10 }, data: ['累计资金 C(t)', '资金MA5', '资金MA10', '资金MA20', '资金MA55', '日K', '周K', '月K', '股价MA5', '股价MA10', '股价MA20', '股价MA55', '共振买入', '共振卖出'] },
+      axisPointer: { link: [{ xAxisIndex: 'all' }] },
+      grid: [
+        { left: 70, right: 70, top: 34, height: '46%' },
+        { left: 70, right: 70, top: '55%', height: '14%' },
+        { left: 70, right: 70, top: '72%', height: '14%' }
+      ],
+      xAxis: [
+        { type: 'category', data: dates, gridIndex: 0, axisLabel: { color: '#8fa3c0', fontSize: 10 }, axisLine: { lineStyle: { color: '#2c3a55' } } },
+        { type: 'category', data: dates, gridIndex: 1, axisLabel: { show: false }, axisLine: { lineStyle: { color: '#2c3a55' } } },
+        { type: 'category', data: dates, gridIndex: 2, axisLabel: { show: false }, axisLine: { lineStyle: { color: '#2c3a55' } } }
+      ],
+      yAxis: [
+        { type: 'value', name: '累计资金', gridIndex: 0, nameTextStyle: { color: '#8fa3c0', fontSize: 10 }, axisLabel: { color: '#8fa3c0', fontSize: 10 }, splitLine: { lineStyle: { color: '#22304a' } } },
+        { type: 'value', name: '股价', scale: true, gridIndex: 0, nameTextStyle: { color: '#8fa3c0', fontSize: 10 }, axisLabel: { color: '#8fa3c0', fontSize: 10 }, splitLine: { show: false } },
+        { type: 'value', name: '当日净流入', gridIndex: 1, nameTextStyle: { color: '#8fa3c0', fontSize: 10 }, axisLabel: { color: '#8fa3c0', fontSize: 10 }, splitLine: { lineStyle: { color: '#22304a' } } },
+        { type: 'value', name: '量能', gridIndex: 2, nameTextStyle: { color: '#8fa3c0', fontSize: 10 }, axisLabel: { color: '#8fa3c0', fontSize: 10, formatter: function (v) { return v >= 10 ? v : v; } }, splitLine: { lineStyle: { color: '#22304a' } } }
+      ],
+      dataZoom: [
+        { type: 'inside', xAxisIndex: [0, 1, 2], start: 0, end: 100 },
+        { type: 'slider', xAxisIndex: [0, 1, 2], bottom: 2, height: 14, start: 0, end: 100 }
+      ],
+      series: fundSeries.concat(klineSeries).concat(extraSeries)
+    };
+    chart.setOption(option, true);
+    setStatus('tab1_data.json · 周期 ' + PERIOD_NAME[current.period] + ' · 口径 ' + CALIBER_NAME[current.caliber] + ' · ' + dates.length + ' 个K线点');
+    setTarget(s.name + ' (' + code + ')');
+  }
+
+  /* ============ 板块/个股列表 ============ */
+  function loadSectorList() {
+    var box = document.getElementById('sectorList');
+    box.innerHTML = '';
+    DATA.sectors.forEach(function (s) {
+      var b = document.createElement('button');
+      b.textContent = s.name;
+      b.dataset.code = s.code;
+      b.addEventListener('click', function () {
+        switchTo(s.code, 'sector');
+        setActiveSector(b);
+        loadStockSelect(s.code);
+      });
+      box.appendChild(b);
+    });
+    if (DATA.sectors.length) {
+      var first = DATA.sectors[0];
+      switchTo(first.code, 'sector');
+      setActiveSector(box.children[0]);
+      loadStockSelect(first.code);
+    }
+  }
+  function setActiveSector(btn) {
+    var all = document.querySelectorAll('#sectorList button');
+    all.forEach(function (x) { x.classList.remove('active'); });
+    if (btn) btn.classList.add('active');
+  }
+  function loadStockSelect(sectorCode) {
+    var sel = document.getElementById('stockSelect');
+    sel.innerHTML = '<option value="">— 不选（显示板块）—</option>';
+    (DATA.stocks[sectorCode] || []).forEach(function (st) {
+      var o = document.createElement('option');
+      o.value = st.code;
+      o.textContent = st.name;
+      sel.appendChild(o);
+    });
+  }
+  function switchTo(code, level) {
+    current.code = code;
+    current.level = level;
+    render(code);
+    if (window.BoardLink) window.BoardLink.setState({ code: code, level: level, from: 'tab-main' });
+  }
+
+  /* ============ 事件绑定 ============ */
+  document.getElementById('stockSelect').addEventListener('change', function () {
+    var v = this.value;
+    if (v) switchTo(v, 'stock');
+    else {
+      var act = document.querySelector('#sectorList button.active');
+      if (act) switchTo(act.dataset.code, 'sector');
+    }
+  });
+
+  ['swC', 'swMA5', 'swMA10', 'swMA20', 'swMA55', 'swKline'].forEach(function (id) {
+    document.getElementById(id).addEventListener('change', function () {
+      if (current.code) render(current.code);
+    });
+  });
+
+  /* 周期切换 */
+  document.querySelectorAll('#periodSeg button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('#periodSeg button').forEach(function (x) { x.classList.remove('active'); });
+      b.classList.add('active');
+      current.period = b.dataset.period;
+      setPeriodLabel();
+      if (current.code) render(current.code);
+      if (window.BoardLink) window.BoardLink.setState({ period: current.period, from: 'tab-main' });
+    });
+  });
+
+  /* 口径切换 */
+  document.querySelectorAll('#caliberSeg button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('#caliberSeg button').forEach(function (x) { x.classList.remove('active'); });
+      b.classList.add('active');
+      current.caliber = b.dataset.caliber;
+      setCaliberLabel();
+      if (current.code) render(current.code);
+      if (window.BoardLink) window.BoardLink.setState({ caliber: current.caliber, from: 'tab-main' });
+    });
+  });
+
+  /* 窗口自适应 */
+  window.addEventListener('resize', function () { chart.resize(); });
+
+  /* ============ 数据加载（C10：_jsonCache 热数据缓存，方案 13.4③） ============ */
+  var _jsonCache = {};
+  function loadJSON(url, ok, fail) {
+    if (_jsonCache[url]) { ok(_jsonCache[url]); return; }
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4) return;
+      if (xhr.status === 200) {
+        try { var d = JSON.parse(xhr.responseText); _jsonCache[url] = d; ok(d); }
+        catch (e) { fail('JSON解析失败: ' + e.message); }
+      } else fail('HTTP ' + xhr.status);
+    };
+    xhr.send();
+  }
+
+  loadJSON('data/tab1_data.json', function (d) {
+    DATA = d;
+    setPeriodLabel();
+    setCaliberLabel();
+    loadSectorList();
+    if (window.BoardLink) {
+      window.BoardLink.onNav(function (nav) {
+        if (!nav || !nav.code) return;
+        switchTo(nav.code, nav.level || 'sector');
+        var secBtn = document.querySelector('#sectorList button[data-code="' + nav.code + '"]');
+        if (secBtn) setActiveSector(secBtn);
+      });
+      window.BoardLink.setState({ code: current.code, level: current.level, period: current.period, caliber: current.caliber, from: 'tab-main' });
+    }
+  }, function (msg) {
+    setStatus('加载失败: ' + msg);
+  });
+})();
+</script>
+</body>
+</html>

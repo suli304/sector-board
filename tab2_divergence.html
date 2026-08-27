@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>板块信号看板 v2.0 — 背离视图（C4）</title>
+<script src="vendor/echarts.min.js"></script>
+<script src="linkage.js"></script>
+<style>
+:root { --bg:#0f1420; --panel:#1a2233; --border:#2c3a55; --text:#e8eef7; --text-dim:#8fa3c0; --accent:#3d9fff; --up:#ef4444; --down:#22c55e; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; min-height:100vh; }
+header { padding:10px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+header h1 { font-size:16px; font-weight:600; }
+header .meta { font-size:11px; color:var(--text-dim); }
+nav#tabNav { display:flex; gap:4px; padding:6px 18px 0; border-bottom:1px solid var(--border); }
+nav#tabNav button { background:transparent; color:var(--text-dim); border:1px solid transparent; border-bottom:none; padding:7px 16px; font-size:13px; cursor:pointer; border-radius:8px 8px 0 0; }
+nav#tabNav button.active { color:var(--accent); border-color:var(--border); background:var(--panel); font-weight:600; }
+.layout { display:flex; gap:12px; padding:12px 18px; }
+.panel { width:250px; flex-shrink:0; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:12px; height:fit-content; }
+.panel h3 { font-size:13px; margin-bottom:8px; color:var(--accent); }
+.panel .grp { margin-bottom:14px; }
+.panel .grp label { display:block; font-size:12px; color:var(--text-dim); margin-bottom:4px; }
+.seg { display:flex; gap:4px; }
+.seg button { flex:1; background:var(--bg); border:1px solid var(--border); color:var(--text-dim); border-radius:6px; padding:5px 4px; font-size:11px; cursor:pointer; }
+.seg button.active { background:rgba(61,159,255,.18); border-color:var(--accent); color:var(--accent); font-weight:600; }
+select { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px; font-size:12px; }
+.legend { display:flex; gap:10px; flex-wrap:wrap; font-size:11px; color:var(--text-dim); padding:4px 0; }
+.legend span { display:inline-flex; align-items:center; gap:4px; }
+.dot { display:inline-block; width:10px; height:10px; border-radius:50%; }
+#rightCol { flex:1; display:flex; flex-direction:column; gap:12px; min-width:0; }
+#chartBox { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:8px; }
+#divChart { width:100%; height:340px; }
+#rankBox { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:8px; flex:1; min-height:0; display:flex; flex-direction:column; }
+#rankBox h3 { font-size:12px; color:var(--accent); padding:4px 4px 8px; }
+#rankHead { display:flex; justify-content:space-between; align-items:center; padding:0 4px 6px; }
+#rankHead .info { font-size:11px; color:var(--text-dim); }
+#rankWrap { overflow-y:auto; flex:1; }
+table { width:100%; border-collapse:collapse; font-size:12px; }
+th, td { padding:5px 8px; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; }
+th { color:var(--text-dim); font-weight:500; position:sticky; top:0; background:var(--panel); }
+tr { cursor:pointer; }
+tr:hover { background:rgba(61,159,255,.10); }
+tr.activeRow { background:rgba(61,159,255,.18); }
+td.num { text-align:right; font-variant-numeric:tabular-nums; }
+.badge { display:inline-block; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:600; }
+.badge.strong { background:rgba(239,68,68,.22); color:#ff7b7b; }
+.badge.mid { background:rgba(245,158,11,.2); color:#fbbf24; }
+.badge.weak { background:rgba(61,159,255,.2); color:#7cc0ff; }
+.badge.top { background:rgba(239,68,68,.35); color:#fff; }
+.badge.bot { background:rgba(34,197,94,.25); color:#4ade80; }
+#statusBar { padding:6px 18px; border-top:1px solid var(--border); font-size:11px; color:var(--text-dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 板块信号看板 v2.0 · ② 背离 R5</h1>
+  <div class="meta">C4 · 背离走势轴 0~18.5 + 4 类排行 · 数据 tab2_data.json</div>
+</header>
+<nav id="tabNav">
+  <button data-tab="tab-main">① 主图</button>
+  <button data-tab="tab-divergence" class="active">② 背离</button>
+  <button data-tab="tab-rotation">③ 板块轮动</button>
+  <button data-tab="tab-intraday">④ 日内形态</button>
+  <button data-tab="tab-composite">⑤ 综合异常打分</button>
+  <button data-tab="tab-data">⑥ 数据看板</button>
+</nav>
+<div class="layout">
+  <div class="panel">
+    <div class="grp">
+      <h3>周期切换</h3>
+      <div class="seg" id="periodSeg">
+        <button data-period="daily" class="active">日K</button>
+        <button data-period="weekly">周K</button>
+        <button data-period="monthly">月K</button>
+      </div>
+    </div>
+    <div class="grp">
+      <h3>排行类型（4 类）</h3>
+      <div class="seg" id="rankSeg">
+        <button data-rank="sector" class="active">板块不一致</button>
+        <button data-rank="within">板块内</button>
+        <button data-rank="between">板块间</button>
+        <button data-rank="stock">全部个股</button>
+      </div>
+    </div>
+    <div class="grp" id="plateGrp" style="display:none">
+      <label>选择板块（板块内排行）</label>
+      <select id="plateSelect"></select>
+    </div>
+    <div class="grp">
+      <h3>排序</h3>
+      <div class="seg" id="orderSeg">
+        <button data-order="desc" class="active">倒序 ↓（强在前）</button>
+        <button data-order="asc">正序 ↑（弱在前）</button>
+      </div>
+    </div>
+    <div class="grp">
+      <h3>背离档位</h3>
+      <div class="legend">
+        <span><span class="dot" style="background:#ff7b7b"></span>强 ≥10</span>
+        <span><span class="dot" style="background:#fbbf24"></span>中 ≥6.5</span>
+        <span><span class="dot" style="background:#7cc0ff"></span>弱 ≥3.5</span>
+      </div>
+      <div class="legend">
+        <span style="color:#ef4444">▲ 顶背离</span>
+        <span style="color:#22c55e">▼ 底背离</span>
+      </div>
+    </div>
+    <div class="grp">
+      <h3>说明</h3>
+      <label>点击排行行 → 走势轴联动显示该标的历史背离（主图联动在 C9 完善）</label>
+    </div>
+  </div>
+  <div id="rightCol">
+    <div id="chartBox"><div id="divChart"></div></div>
+    <div id="rankBox">
+      <div id="rankHead">
+        <h3 id="rankTitle">板块不一致排行</h3>
+        <div class="info" id="rankInfo">—</div>
+      </div>
+      <div id="rankWrap"><table id="rankTable"></table></div>
+    </div>
+  </div>
+</div>
+<div id="statusBar">数据: <span id="stData">加载中…</span> · 当前标的: <span id="stTarget">—</span> · 周期: <span id="stPeriod">日K</span> · 排行: <span id="stRank">板块不一致</span></div>
+<script>
+(function () {
+  'use strict';
+  var chart = echarts.init(document.getElementById('divChart'));
+  var current = { period: 'daily', rank: 'sector', order: 'desc', target: { level: 'sector', idx: 0 } };
+  var DATA = null;
+  var PERIOD_NAME = { daily: '日K', weekly: '周K', monthly: '月K' };
+  var RANK_NAME = { sector: '板块不一致', within: '板块内', between: '板块间', stock: '全部个股' };
+  var LEVEL_NAME = { 0: '无', 1: '弱', 2: '中', 3: '强' };
+  var TYPE_NAME = { 0: '无', 1: '顶背离', 2: '底背离' };
+  var LEVEL_CLS = { 1: 'weak', 2: 'mid', 3: 'strong' };
+
+  function setStatus(m) { document.getElementById('stData').textContent = m; }
+  function setTarget(t) { document.getElementById('stTarget').textContent = t; }
+  function pd() { return DATA.periods[current.period]; }
+
+  function targetName() {
+    var t = current.target, per = pd();
+    if (t.level === 'sector') return per.sectors[t.idx].n + '（板块）';
+    return per.stocks[t.idx].n + '（个股）';
+  }
+
+  /* ============ 走势轴 ============ */
+  function renderChart() {
+    var t = current.target, per = pd();
+    var obj = t.level === 'sector' ? per.sectors[t.idx] : per.stocks[t.idx];
+    if (!obj) return;
+    var dates = per.dates;
+    var pts = (obj.d || []).map(function (p) { return { date: dates[p[0]], v: p[1], type: p[2] }; });
+    var top = pts.filter(function (p) { return p.type === 1; });
+    var bot = pts.filter(function (p) { return p.type === 2; });
+    var none = pts.filter(function (p) { return p.type === 0; });
+    function scatter(arr, color, symbol) {
+      return {
+        name: symbol === 'triangle' ? '顶背离' : symbol === 'pin' ? '底背离' : '背离(无类型)',
+        type: 'scatter', data: arr.map(function (p) { return [p.date, p.v]; }),
+        symbol: symbol, symbolSize: 9,
+        itemStyle: { color: color, opacity: .9 },
+        tooltip: { formatter: function (pp) { return pp.value[0] + '<br>背离分: ' + pp.value[1]; } }
+      };
+    }
+    var opt = {
+      backgroundColor: 'transparent',
+      title: { text: (t.level === 'sector' ? '📦 ' : '📄 ') + obj.n + ' — 背离走势', left: 8, top: 4, textStyle: { color: '#e8eef7', fontSize: 13, fontWeight: 600 } },
+      tooltip: { trigger: 'item' },
+      legend: { top: 6, right: 10, textStyle: { color: '#8fa3c0', fontSize: 11 }, itemWidth: 12, itemHeight: 8 },
+      grid: { left: 46, right: 16, top: 42, bottom: 30 },
+      xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: '#2c3a55' } }, axisLabel: { color: '#8fa3c0', fontSize: 10 } },
+      yAxis: { type: 'value', min: 0, max: DATA.meta.cap, interval: 3, name: '背离分', nameTextStyle: { color: '#8fa3c0' }, axisLine: { lineStyle: { color: '#2c3a55' } }, axisLabel: { color: '#8fa3c0', fontSize: 10 }, splitLine: { lineStyle: { color: 'rgba(44,58,85,.5)' } } },
+      series: [
+        { name: '背离分', type: 'line', data: pts.map(function (p) { return [p.date, p.v]; }), showSymbol: false, lineStyle: { color: '#3d9fff', width: 1.5 }, z: 1 },
+        scatter(top, '#ef4444', 'triangle'),
+        scatter(bot, '#22c55e', 'pin'),
+        scatter(none, '#94a3b8', 'circle')
+      ],
+      markLine: (function () {
+        var M = DATA.meta;
+        return [
+          { yAxis: M.strong, lineStyle: { color: '#ef4444', type: 'dashed' }, label: { formatter: '强 ' + M.strong, color: '#ff7b7b', fontSize: 10 } },
+          { yAxis: M.mid, lineStyle: { color: '#fbbf24', type: 'dashed' }, label: { formatter: '中 ' + M.mid, color: '#fbbf24', fontSize: 10 } },
+          { yAxis: M.weak, lineStyle: { color: '#7cc0ff', type: 'dashed' }, label: { formatter: '弱 ' + M.weak, color: '#7cc0ff', fontSize: 10 } }
+        ];
+      })()
+    };
+    // markLine 挂在第一个 series 上
+    opt.series[0].markLine = { silent: true, symbol: 'none', data: [
+      { yAxis: DATA.meta.strong, lineStyle: { color: '#ef4444', type: 'dashed' }, label: { formatter: '强 ' + DATA.meta.strong, color: '#ff7b7b', fontSize: 10 } },
+      { yAxis: DATA.meta.mid, lineStyle: { color: '#fbbf24', type: 'dashed' }, label: { formatter: '中 ' + DATA.meta.mid, color: '#fbbf24', fontSize: 10 } },
+      { yAxis: DATA.meta.weak, lineStyle: { color: '#7cc0ff', type: 'dashed' }, label: { formatter: '弱 ' + DATA.meta.weak, color: '#7cc0ff', fontSize: 10 } }
+    ] };
+    chart.setOption(opt, true);
+    setStatus(pd().latest + ' 完整 · 周期 ' + PERIOD_NAME[current.period]);
+    setTarget(targetName());
+  }
+  /* ============ 排行 ============ */
+  function rowsForRank() {
+    var per = pd();
+    if (current.rank === 'sector') return { rows: per.rankSector, type: 'sector' };
+    if (current.rank === 'between') return { rows: per.between, type: 'between' };
+    if (current.rank === 'within') {
+      var pc = document.getElementById('plateSelect').value;
+      var rows = (pc && per.within[pc]) ? per.within[pc] : [];
+      return { rows: rows, type: 'within', plate: pc };
+    }
+    return { rows: per.rankStock, type: 'stock' };
+  }
+  function sortRows(rows) {
+    var dir = current.order === 'desc' ? -1 : 1;
+    return rows.slice().sort(function (a, b) {
+      if (a.s !== b.s) return (a.s - b.s) * dir;
+      return a.i - b.i;
+    });
+  }
+  function badgeHtml(lv) {
+    if (!lv) return '';
+    var cls = LEVEL_CLS[lv] || '';
+    return '<span class="badge ' + cls + '">' + LEVEL_NAME[lv] + '</span>';
+  }
+  function typeHtml(t) {
+    if (t === 1) return '<span style="color:#ef4444">▲ 顶背离</span>';
+    if (t === 2) return '<span style="color:#22c55e">▼ 底背离</span>';
+    return '<span style="color:#64748b">无</span>';
+  }
+  function renderRank() {
+    var per = pd();
+    var rr = rowsForRank();
+    var rows = sortRows(rr.rows);
+    var tb = document.getElementById('rankTable');
+    var html = '<tr><th>#</th><th>名称</th><th>背离分</th><th>档位</th><th>类型</th>' +
+      (rr.type === 'between' ? '<th>强/中/弱</th><th>平均</th><th>最强个股</th>' : '') +
+      (rr.type === 'stock' || rr.type === 'within' ? '<th>所属板块</th>' : '') + '</tr>';
+    var shown = rr.type === 'stock' ? Math.min(rows.length, 100) : rows.length;
+    document.getElementById('rankInfo').textContent = '共 ' + rows.length + ' 条 · 显示前 ' + shown + ' 条 · 最新 ' + per.latest;
+    for (var i = 0; i < shown; i++) {
+      var r = rows[i];
+      var nm = '', pl = '';
+      if (rr.type === 'between') {
+        nm = r.pn;
+        pl = r.maxName + ' ' + r.max;
+      } else if (rr.type === 'sector') {
+        nm = per.sectors[r.i].n;
+      } else {
+        nm = per.stocks[r.i].n;
+        pl = (per.stocks[r.i].pl || []).map(function (pc) { return pnameOf(pc); }).join('/') || '—';
+      }
+      var cls = '';
+      if (current.target.level === (rr.type === 'sector' ? 'sector' : 'stock') && current.target.idx === r.i) cls = ' class="activeRow"';
+      html += '<tr' + cls + ' data-level="' + (rr.type === 'sector' ? 'sector' : rr.type === 'between' ? 'sector' : 'stock') + '" data-idx="' + r.i + '">';
+      html += '<td>' + (i + 1) + '</td>';
+      html += '<td>' + nm + '</td>';
+      html += '<td class="num"><b>' + (r.s != null ? r.s.toFixed(1) : (r.avg != null ? r.avg.toFixed(1) : '—')) + '</b></td>';
+      html += '<td>' + badgeHtml(r.lv) + '</td>';
+      html += '<td>' + typeHtml(r.t) + '</td>';
+      if (rr.type === 'between') html += '<td>' + r.strong + '/' + r.mid + '/' + r.weak + '</td><td class="num">' + r.avg + '</td><td>' + pl + '</td>';
+      if (rr.type === 'stock' || rr.type === 'within') html += '<td>' + pl + '</td>';
+      html += '</tr>';
+    }
+    tb.innerHTML = html;
+    document.getElementById('rankTitle').textContent = RANK_NAME[current.rank] + '排行';
+    document.getElementById('stRank').textContent = RANK_NAME[current.rank];
+  }
+  function pnameOf(pc) {
+    var by = DATA.periods[current.period].between.filter(function (b) { return b.pc === pc; });
+    return by.length ? by[0].pn : pc;
+  }
+
+  /* ============ 事件 ============ */
+  document.getElementById('periodSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    this.querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
+    b.classList.add('active');
+    current.period = b.getAttribute('data-period');
+    rebuildPlates();
+    if (current.rank === 'within') current.rank = 'sector';
+    refreshRankSeg();
+    // 重置目标到当前周期板块第一
+    if (pd().sectors.length) current.target = { level: 'sector', idx: pd().rankSector[0].i };
+    renderChart(); renderRank();
+    document.getElementById('stPeriod').textContent = PERIOD_NAME[current.period];
+  });
+  document.getElementById('rankSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    this.querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
+    b.classList.add('active');
+    current.rank = b.getAttribute('data-rank');
+    document.getElementById('plateGrp').style.display = current.rank === 'within' ? '' : 'none';
+    if (current.rank !== 'within') {
+      var rr = rowsForRank();
+      if (rr.rows.length) current.target = { level: current.rank === 'sector' || current.rank === 'between' ? 'sector' : 'stock', idx: rr.rows[0].i };
+      renderChart();
+    }
+    renderRank();
+  });
+  document.getElementById('orderSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    this.querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
+    b.classList.add('active');
+    current.order = b.getAttribute('data-order');
+    renderRank();
+  });
+  document.getElementById('plateSelect').addEventListener('change', function () {
+    var rr = rowsForRank();
+    if (rr.rows.length) current.target = { level: 'stock', idx: rr.rows[0].i };
+    renderChart(); renderRank();
+  });
+  document.getElementById('rankTable').addEventListener('click', function (e) {
+    var tr = e.target.closest('tr[data-idx]'); if (!tr) return;
+    current.target = { level: tr.getAttribute('data-level'), idx: +tr.getAttribute('data-idx') };
+    renderChart(); renderRank();
+    /* C9 联动：点击排行行 → 主图切对应板块/个股 */
+    var rr = rowsForRank(), per = pd(), row = null, code = null, k;
+    for (k = 0; k < rr.rows.length; k++) { if (rr.rows[k].i === current.target.idx) { row = rr.rows[k]; break; } }
+    if (row) {
+      if (rr.type === 'sector') code = per.sectors[row.i] && per.sectors[row.i].c;
+      else if (rr.type === 'between') code = row.pc || (per.sectors[row.i] && per.sectors[row.i].c);
+      else code = per.stocks[row.i] && per.stocks[row.i].c;
+    }
+    if (code && window.BoardLink) window.BoardLink.emitNav(code, tr.getAttribute('data-level'), { tab: 'tab-main' });
+  });
+  document.getElementById('tabNav').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    var tab = b.getAttribute('data-tab');
+    if (tab === 'tab-main') { window.location.href = 'tab1_main.html'; return; }
+    setStatus('该 Tab 将在后续 Step 落地（' + tab + '）');
+  });
+  function refreshRankSeg() {
+    document.querySelectorAll('#rankSeg button').forEach(function (x) {
+      x.classList.toggle('active', x.getAttribute('data-rank') === current.rank);
+    });
+    document.getElementById('plateGrp').style.display = current.rank === 'within' ? '' : 'none';
+  }
+  function rebuildPlates() {
+    var sel = document.getElementById('plateSelect');
+    var per = pd();
+    var opts = ['<option value="">— 选择板块 —</option>'];
+    per.between.forEach(function (b) { opts.push('<option value="' + b.pc + '">' + b.pn + '</option>'); });
+    sel.innerHTML = opts.join('');
+  }
+  function loadJSON(url, cb) {
+    var x = new XMLHttpRequest();
+    x.open('GET', url, true);
+    x.onreadystatechange = function () { if (x.readyState === 4 && x.status === 200) cb(JSON.parse(x.responseText)); };
+    x.send();
+  }
+  loadJSON('data/tab2_data.json', function (d) {
+    DATA = d;
+    rebuildPlates();
+    var per = pd();
+    if (per.rankSector.length) current.target = { level: 'sector', idx: per.rankSector[0].i };
+    renderChart();
+    renderRank();
+  });
+})();
+</script>
+</body>
+</html>

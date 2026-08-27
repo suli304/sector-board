@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tab5 综合信号 - E5排行</title>
+<script src="vendor/echarts.min.js"></script>
+<script src="linkage.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#0f1420; color:#d8e0ee; }
+  .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:12px 16px; background:#171e2e; border-bottom:1px solid #26324a; }
+  .topbar .title { font-size:15px; font-weight:600; color:#e8eefc; margin-right:6px; }
+  .ctrl { display:flex; align-items:center; gap:6px; font-size:13px; color:#9fb0cc; }
+  select { background:#0f1420; border:1px solid #2a3a55; color:#d8e0ee; padding:5px 8px; border-radius:5px; font-size:13px; max-width:200px; }
+  .seg { display:flex; background:#0f1420; border:1px solid #2a3a55; border-radius:6px; overflow:hidden; }
+  .seg button { background:transparent; border:none; color:#9fb0cc; padding:5px 12px; font-size:13px; cursor:pointer; }
+  .seg button.active { background:#2d5cff; color:#fff; }
+  .chip { padding:4px 10px; border-radius:20px; font-size:12px; cursor:pointer; border:1px solid #2a3a55; color:#9fb0cc; background:transparent; }
+  .chip.active { background:#2d5cff; color:#fff; border-color:#2d5cff; }
+  .wrap { padding:10px 16px; }
+  .sectitle { font-size:14px; font-weight:600; color:#e8eefc; margin:10px 0 8px; display:flex; align-items:center; gap:8px; }
+  .sectitle .tag { font-size:11px; color:#6b7a96; font-weight:400; }
+  .two-col { display:flex; gap:14px; flex-wrap:wrap; }
+  .col-chart { flex:1 1 460px; }
+  .col-cards { flex:1 1 300px; }
+  #secChart { width:100%; height:460px; background:#0f1420; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
+  .card { background:#171e2e; border:1px solid #26324a; border-left:3px solid #ff5d7a; border-radius:8px; padding:8px 10px; }
+  .card .nm { font-size:13px; font-weight:600; color:#e8eefc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .card .sc { font-size:18px; font-weight:700; color:#ff5d7a; }
+  .card .tg { font-size:11px; color:#9fb0cc; margin-top:3px; }
+  .card .tg b { color:#ffd76a; font-weight:600; margin-right:4px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { background:#1c2436; color:#9fb0cc; padding:7px 8px; text-align:left; position:sticky; top:0; }
+  td { padding:6px 8px; border-bottom:1px solid #1c2436; }
+  tr.main { cursor:pointer; }
+  tr.main:hover { background:#1a2233; }
+  tr.main.top { background:#202b42; }
+  .sc-high { color:#ff5d7a; font-weight:700; }
+  .sc-mid { color:#ffd76a; font-weight:700; }
+  .sc-low { color:#9fb0cc; }
+  .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px; margin-right:4px; background:#26324a; color:#9fb0cc; }
+  .tag.on { background:#2d5cff; color:#fff; }
+  .tag.dom { background:#c0392b; color:#fff; }
+  .tag.tail { background:#b8860b; color:#fff; }
+  .tag.reso { background:#7d3c98; color:#fff; }
+  .tag.vol { background:#1e8449; color:#fff; }
+  .tag.turn { background:#2c6e91; color:#fff; }
+  .tag.intra { background:#6c3483; color:#fff; }
+  .tag.div { background:#8b4513; color:#fff; }
+  tr.detail { background:#141a29; }
+  tr.detail td { padding:8px 8px 10px 30px; }
+  .detail-inner { display:flex; flex-wrap:wrap; gap:6px; }
+  .bar-item { background:#171e2e; border:1px solid #26324a; border-radius:6px; padding:5px 9px; font-size:12px; min-width:110px; }
+  .bar-item .k { color:#9fb0cc; }
+  .bar-item .v { color:#d8e0ee; font-weight:600; }
+  .bar-item .w { color:#5f7ea8; font-size:11px; margin-left:5px; }
+  .sum-line { color:#2dffa0; font-size:12px; margin-top:6px; }
+  .tip { color:#6b7a96; font-size:12px; margin-top:6px; }
+  .empty { color:#6b7a96; text-align:center; padding:20px; }
+  .pager { display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-top:8px; font-size:12px; color:#9fb0cc; }
+  .pager .pginfo { color:#e8eefc; }
+  .pgbtn { background:#171e2e; border:1px solid #2a3a55; color:#9fb0cc; padding:4px 12px; border-radius:6px; font-size:12px; cursor:pointer; }
+  .pgbtn:hover:not(:disabled) { background:#2d5cff; color:#fff; }
+  .pgbtn:disabled { opacity:0.35; cursor:not-allowed; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="title">⑤ 综合信号</span>
+  <div class="ctrl">板块</div>
+  <select id="plateSel"><option value="">全部板块</option></select>
+  <div class="ctrl">信号类型</div>
+  <div class="seg" id="sigSel"></div>
+  <div class="ctrl">排序</div>
+  <div class="seg" id="orderSeg">
+    <button data-o="desc" class="active">降序</button>
+    <button data-o="asc">升序</button>
+  </div>
+  <span class="ctrl" id="cntLabel"></span>
+  <button class="chip" id="backtestBtn" title="回测功能入口（G-039）">🧪 回测</button>
+</div>
+<div class="wrap">
+  <div class="sectitle">板块排行 <span class="tag" id="secDate"></span><span class="tag">最新完整日</span></div>
+  <div class="two-col">
+    <div class="col-chart"><div id="secChart"></div></div>
+    <div class="col-cards">
+      <div class="sectitle">Top10 高亮 <span class="tag">综合分 0~100</span></div>
+      <div class="cards" id="topCards"></div>
+    </div>
+  </div>
+  <div class="sectitle">个股明细 <span class="tag" id="stockHint"></span></div>
+  <div style="max-height:560px;overflow:auto;border:1px solid #1c2436;border-radius:8px;">
+    <table>
+      <thead><tr><th style="width:60px">#</th><th>代码</th><th>名称</th><th>综合分</th><th>触发信号</th><th>所属板块</th><th style="width:80px">展开</th></tr></thead>
+      <tbody id="stockBody"></tbody>
+    </table>
+  </div>
+  <div class="pager" id="pager"></div>
+  <div class="tip">点击行展开 7 指标明细（得分 × 权重 = 加权贡献，求和应与综合分一致）。个股可组合筛选：选板块 ∩ 选信号类型。</div>
+</div>
+<script>
+var DATA=null, chart=null;
+var ORDER='desc';
+var PAGE=1, PAGE_SIZE=100;
+var SIGS=['div','tail','reso','vol','turn','intra','dom'];
+var SIG_COLOR={div:'#8b4513',tail:'#b8860b',reso:'#7d3c98',vol:'#1e8449',turn:'#2c6e91',intra:'#6c3483',dom:'#c0392b'};
+var SIG_NAMES={div:'背离',tail:'尾盘',reso:'共振',vol:'量能',turn:'转折',intra:'日内',dom:'主导'};
+
+function scoreClass(v){ if(v>=80)return 'sc-high'; if(v>=60)return 'sc-mid'; return 'sc-low'; }
+function scoreColor(v){ if(v>=80)return '#ff5d7a'; if(v>=60)return '#ffd76a'; return '#9fb0cc'; }
+
+function initSigSeg(){
+  var box=document.getElementById('sigSel');
+  box.innerHTML='';
+  SIGS.forEach(function(k){
+    var b=document.createElement('button');
+    b.className='chip active';
+    b.dataset.s=k;
+    b.textContent=SIG_NAMES[k];
+    b.onclick=function(){ b.classList.toggle('active'); PAGE=1; renderStocks(); };
+    box.appendChild(b);
+  });
+}
+
+function initPlateSel(){
+  var sel=document.getElementById('plateSel');
+  sel.innerHTML='<option value="">全部板块</option>';
+  DATA.sectors.forEach(function(s){
+    var o=document.createElement('option');
+    o.value=s.c; o.textContent=s.n;
+    sel.appendChild(o);
+  });
+}
+
+function renderSectors(){
+  var top=DATA.sectors.slice(0,20);
+  var names=top.map(function(s){return s.n;}).reverse();
+  var vals=top.map(function(s){return s.score;}).reverse();
+  var colors=top.map(function(s){return scoreColor(s.score);}).reverse();
+  chart.setOption({
+    tooltip:{trigger:'axis',axisPointer:{type:'shadow'},formatter:function(ps){var s=ps[0].data;return s.n+'<br/>综合分：<b>'+s.score+'</b><br/>触发：'+(s.trig.length?s.trig.map(function(t){return SIG_NAMES[t];}).join('、'):'无');}},
+    grid:{left:120,right:40,top:10,bottom:30},
+    xAxis:{type:'value',max:100,axisLabel:{color:'#6b7a96'},splitLine:{lineStyle:{color:'#1c2436'}}},
+    yAxis:{type:'category',data:names,axisLabel:{color:'#9fb0cc',fontSize:11}},
+    series:[{type:'bar',data:top.slice().reverse().map(function(s){return {value:s.score,c:s.c,n:s.n,score:s.score,trig:s.trig,itemStyle:{color:scoreColor(s.score)}};}),barWidth:12}]
+  });
+  var cards=document.getElementById('topCards');
+  cards.innerHTML='';
+  DATA.sectors.slice(0,10).forEach(function(s){
+    var d=document.createElement('div');
+    d.className='card';
+    d.innerHTML='<div class="nm">'+s.n+'</div><div class="sc">'+s.score.toFixed(1)+'</div><div class="tg">'+(s.trig.length?s.trig.map(function(t){return '<b>'+SIG_NAMES[t]+'</b>';}).join(''):'<span style="color:#5f7ea8">无触发</span>')+'</div>';
+    cards.appendChild(d);
+  });
+  document.getElementById('secDate').textContent=DATA.meta.latestDate;
+}
+
+function getActiveSigs(){
+  var out=[];
+  document.querySelectorAll('#sigSel .chip.active').forEach(function(b){out.push(b.dataset.s);});
+  return out;
+}
+
+function trigTags(trig){
+  return trig.length?trig.map(function(t){return '<span class="tag on '+t+'">'+SIG_NAMES[t]+'</span>';}).join(''):'<span style="color:#5f7ea8">-</span>';
+}
+
+function renderStocks(){
+  var plate=document.getElementById('plateSel').value;
+  var sigs=getActiveSigs();
+  var list=DATA.stocks.filter(function(st){
+    if(plate && st.plates.indexOf(plate)<0) return false;
+    if(sigs.length && !sigs.some(function(s){return st.trig.indexOf(s)>=0;})) return false;
+    return true;
+  });
+  if(ORDER==='asc') list.sort(function(a,b){return a.score-b.score;});
+  else list.sort(function(a,b){return b.score-a.score;});
+  document.getElementById('cntLabel').textContent='共 '+list.length+' 只';
+  var body=document.getElementById('stockBody');
+  body.innerHTML='';
+  if(!list.length){ body.innerHTML='<tr><td colspan="7" class="empty">无匹配标的（组合筛选过严）</td></tr>'; renderPager(0); return; }
+  var totalPages=Math.max(1,Math.ceil(list.length/PAGE_SIZE));
+  if(PAGE>totalPages) PAGE=totalPages;
+  var start=(PAGE-1)*PAGE_SIZE;
+  var pageList=list.slice(start, start+PAGE_SIZE);
+  pageList.forEach(function(st,i){
+    var tr=document.createElement('tr');
+    tr.className='main'+(start+i<10?' top':'');
+    tr.innerHTML='<td>'+(start+i+1)+'</td><td>'+st.c.replace('US.','')+'</td><td>'+st.n+'</td><td class="'+scoreClass(st.score)+'">'+st.score.toFixed(1)+'</td><td>'+trigTags(st.trig)+'</td><td style="font-size:11px;color:#9fb0cc">'+st.plates.length+' 板块</td><td style="color:#5f7ea8">▸</td>';
+    tr.onclick=function(){
+      toggleDetail(tr,st);
+      /* C9 联动：点击个股行 → 主图切该个股 */
+      if (window.BoardLink) window.BoardLink.emitNav(st.c, 'stock', { tab: 'tab-main' });
+    };
+    body.appendChild(tr);
+  });
+  renderPager(list.length);
+}
+
+function renderPager(total){
+  var pg=document.getElementById('pager');
+  if(!pg) return;
+  var pages=Math.max(1,Math.ceil(total/PAGE_SIZE));
+  if(!total) pages=1;
+  pg.innerHTML='<button class="pgbtn" id="pgPrev"'+(PAGE<=1?' disabled':'')+'>‹ 上一页</button><span class="pginfo">'+PAGE+' / '+pages+'</span><button class="pgbtn" id="pgNext"'+(PAGE>=pages?' disabled':'')+'>下一页 ›</button>';
+  var prev=document.getElementById('pgPrev'), next=document.getElementById('pgNext');
+  if(prev) prev.onclick=function(){ if(PAGE>1){PAGE--; renderStocks();} };
+  if(next) next.onclick=function(){ if(PAGE<pages){PAGE++; renderStocks();} };
+}
+
+function toggleDetail(tr,st){
+  var next=tr.nextSibling;
+  if(next && next.classList && next.classList.contains('detail')){
+    next.parentNode.removeChild(next);
+    tr.querySelector('td:last-child').textContent='▸';
+    return;
+  }
+  var det=document.createElement('tr');
+  det.className='detail';
+  var subsHtml='';
+  DATA.meta.subsOrder.forEach(function(k,i){
+    var sc=st.subs[i];
+    var w=DATA.meta.weights[k];
+    var contrib=sc*w*100;
+    subsHtml+='<div class="bar-item"><span class="k">'+SIG_NAMES[k]+'</span> <span class="v">'+sc.toFixed(1)+'</span><span class="w">×'+w.toFixed(2)+'→'+contrib.toFixed(1)+'</span></div>';
+  });
+  var raw=0;
+  st.subs.forEach(function(sc,i){ raw+=sc*DATA.meta.weights[DATA.meta.subsOrder[i]]; });
+  var norm=Math.min(100, raw*100);
+  var ok=Math.abs(norm-st.score)<0.6;
+  var cap=(raw*100>100.0001)?'（原始超100已封顶）':'';
+  det.innerHTML='<td colspan="7"><div class="detail-inner">'+subsHtml+'</div><div class="sum-line">归一化加权和 = '+norm.toFixed(2)+'（综合分 '+st.score.toFixed(2)+'）'+cap+(ok?' ✓ 一致':' ⚠ 偏差')+'</div></td>';
+  tr.parentNode.insertBefore(det,tr.nextSibling);
+  tr.querySelector('td:last-child').textContent='▾';
+}
+
+document.getElementById('plateSel').onchange=function(){ PAGE=1; renderStocks(); };
+document.getElementById('orderSeg').querySelectorAll('button').forEach(function(b){
+  b.onclick=function(){
+    document.querySelectorAll('#orderSeg button').forEach(function(x){x.classList.remove('active');});
+    b.classList.add('active');
+    ORDER=b.dataset.o;
+    PAGE=1;
+    renderStocks();
+  };
+});
+
+fetch('data/tab5_data.json').then(function(r){return r.json();}).then(function(d){
+  DATA=d;
+  chart=echarts.init(document.getElementById('secChart'));
+  chart.on('click', function (params) {
+    if (params && params.data && params.data.c && window.BoardLink) {
+      window.BoardLink.emitNav(params.data.c, 'sector', { tab: 'tab-main' });
+    }
+  });
+  initSigSeg();
+  initPlateSel();
+  renderSectors();
+  renderStocks();
+  document.getElementById('stockHint').textContent=DATA.meta.nStocks+' 只 × '+DATA.meta.latestDate;
+});
+
+/* B09/G-039: 回测入口占位弹层 */
+var btBtn=document.getElementById('backtestBtn'), btModal=document.getElementById('btModal');
+if(btBtn && btModal){
+  btBtn.addEventListener('click',function(){ btModal.style.display='flex'; });
+  btModal.addEventListener('click',function(e){
+    if(e.target===btModal || e.target.id==='btClose') btModal.style.display='none';
+  });
+}
+</script>
+<!-- B09/G-039: 回测入口占位弹层 -->
+<div id="btModal" style="display:none;position:fixed;inset:0;background:rgba(8,12,20,.72);z-index:999;align-items:center;justify-content:center;">
+  <div style="background:#171e2e;border:1px solid #2a3a55;border-radius:10px;padding:22px 26px;max-width:440px;box-shadow:0 10px 40px rgba(0,0,0,.5);">
+    <div style="font-size:15px;font-weight:600;color:#e8eefc;margin-bottom:10px;">🧪 回测功能（G-039）</div>
+    <div style="font-size:13px;color:#9fb0cc;line-height:1.8;">
+      回测入口当前为占位，独立回测页面将在后续迭代接入。<br>
+      现有回测成果见项目 <b>backtest/</b> 目录：G4 日内形态回测报告、CAL2 背离校准报告、E2 指标有效性报告、E3 权重表等。
+    </div>
+    <div style="margin-top:16px;text-align:right;">
+      <button id="btClose" style="background:#2d5cff;border:none;color:#fff;padding:6px 18px;border-radius:6px;font-size:13px;cursor:pointer;">关闭</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

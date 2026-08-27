@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tab6 数据看板 - 判定表</title>
+<script src="linkage.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#0f1420; color:#d8e0ee; }
+  .topbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:12px 16px; background:#171e2e; border-bottom:1px solid #26324a; }
+  .topbar .title { font-size:15px; font-weight:600; color:#e8eefc; margin-right:6px; }
+  .ctrl { display:flex; align-items:center; gap:6px; font-size:13px; color:#9fb0cc; }
+  select { background:#0f1420; border:1px solid #2a3a55; color:#d8e0ee; padding:5px 8px; border-radius:5px; font-size:13px; }
+  .seg { display:flex; background:#0f1420; border:1px solid #2a3a55; border-radius:6px; overflow:hidden; }
+  .seg button { background:transparent; border:none; color:#9fb0cc; padding:5px 12px; font-size:13px; cursor:pointer; }
+  .seg button.active { background:#2d5cff; color:#fff; }
+  .btn { background:#2d5cff; color:#fff; border:none; padding:6px 12px; border-radius:6px; font-size:13px; cursor:pointer; }
+  .btn.ghost { background:transparent; border:1px solid #2a3a55; color:#9fb0cc; }
+  .btn:hover { opacity:0.9; }
+  .wrap { padding:10px 16px; }
+  .groupbar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+  .gchk { display:flex; align-items:center; gap:4px; font-size:12px; color:#9fb0cc; background:#171e2e; border:1px solid #26324a; border-radius:6px; padding:4px 9px; cursor:pointer; }
+  .gchk input { accent-color:#2d5cff; }
+  .gchk.off { opacity:0.4; }
+  .tablebox { max-height:600px; overflow:auto; border:1px solid #1c2436; border-radius:8px; }
+  table { border-collapse:collapse; font-size:12px; white-space:nowrap; }
+  th { background:#1c2436; color:#9fb0cc; padding:6px 8px; text-align:left; position:sticky; top:0; z-index:2; cursor:pointer; user-select:none; }
+  th:hover { color:#e8eefc; }
+  th .arrow { font-size:10px; color:#2d5cff; }
+  td { padding:5px 8px; border-bottom:1px solid #161d2c; }
+  tr:hover td { background:#1a2233; }
+  tr.sector td { background:#14203a; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .sc-hi { color:#ff5d7a; font-weight:700; }
+  .sc-md { color:#ffd76a; font-weight:700; }
+  .nav { cursor:pointer; color:#5da2ff; text-decoration:underline dotted; }
+  .nav:hover { color:#2dffa0; }
+  .tag { display:inline-block; padding:1px 6px; border-radius:8px; font-size:11px; }
+  .tip { color:#6b7a96; font-size:12px; margin-top:8px; }
+  .pager { display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-top:8px; font-size:12px; color:#9fb0cc; }
+  .pager .pginfo { color:#e8eefc; }
+  .pgbtn { background:#171e2e; border:1px solid #2a3a55; color:#9fb0cc; padding:4px 12px; border-radius:6px; font-size:12px; cursor:pointer; }
+  .pgbtn:hover:not(:disabled) { background:#2d5cff; color:#fff; }
+  .pgbtn:disabled { opacity:0.35; cursor:not-allowed; }
+  .apibox { background:#171e2e; border:1px solid #26324a; border-radius:8px; padding:10px 12px; margin:8px 0; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; color:#9fd8a8; display:flex; gap:10px; align-items:flex-start; }
+  .apibox pre { flex:1; margin:0; overflow:auto; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="title">⑥ 数据看板</span>
+  <div class="ctrl">层级</div>
+  <div class="seg" id="lvlSeg">
+    <button data-l="" class="active">全部</button>
+    <button data-l="sector">板块</button>
+    <button data-l="stock">个股</button>
+  </div>
+  <div class="ctrl" id="dateLabel"></div>
+  <button class="btn" id="exportBtn">导出 CSV</button>
+  <button class="btn ghost" id="apiBtn">API 示例</button>
+  <span class="ctrl" id="cntLabel"></span>
+</div>
+<div class="wrap">
+  <div class="groupbar" id="groupBar"></div>
+  <div class="tablebox">
+    <table id="tbl">
+      <thead id="tHead"></thead>
+      <tbody id="tBody"></tbody>
+    </table>
+  </div>
+  <div class="pager" id="pager"></div>
+  <div class="tip">点击列头排序；勾选左侧分组控制列显隐；判定列（主导/背离/日内/综合）带跳转标记（整合版接入对应图表）。</div>
+  <div class="apibox" id="apiBox" style="display:none"><pre id="apiPre"></pre><button class="btn ghost" id="copyBtn">复制</button></div>
+</div>
+<script>
+var DATA=null, LVL='', SORT={k:'composite_score',d:-1};
+var PAGE=1, PAGE_SIZE=100;
+var VIS={};
+
+function fmt(v){
+  if(v===null||v===undefined||v==='') return '';
+  /* B09/G-006: dedup_applied 友好显示（去重/累计转折互斥标记） */
+  if(v==='div_turn_mutex') return '背离↔转折互斥';
+  if(v==='tail_vol_mutex') return '尾盘↔量能互斥';
+  /* B14/G-006: 累计资金流转折点列友好显示（top→顶 / bottom→底 / none→空） */
+  if(v==='top') return '顶';
+  if(v==='bottom') return '底';
+  if(v==='none') return '';
+  if(typeof v==='number') return v.toLocaleString('en-US',{maximumFractionDigits:2});
+  return String(v);
+}
+function scoreCls(v){ if(v>=80)return 'sc-hi'; if(v>=60)return 'sc-md'; return ''; }
+function navTabFor(col){
+  /* C9 联动：判定列 → 骨架面板 id（与 board_skeleton.html data-tab 一致） */
+  var m={dominance:'tab-main',div_daily_score:'tab-divergence',div_weekly_score:'tab-divergence',div_monthly_score:'tab-divergence',intraday_tail:'tab-intraday',intraday_pattr:'tab-intraday',intraday_pvd:'tab-intraday',intraday_osc:'tab-intraday',composite_score:'tab-composite'};
+  return m[col]||null;
+}
+
+function buildGroups(){
+  var bar=document.getElementById('groupBar');
+  bar.innerHTML='';
+  DATA.meta.groups.forEach(function(g){
+    var label=document.createElement('label');
+    label.className='gchk';
+    var cb=document.createElement('input');
+    cb.type='checkbox'; cb.checked=true;
+    g.cols.forEach(function(c){VIS[c]=true;});
+    cb.onchange=function(){
+      var on=cb.checked;
+      g.cols.forEach(function(c){VIS[c]=on;});
+      label.classList.toggle('off',!on);
+      renderHead(); renderBody();
+    };
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(g.g+'('+g.cols.length+')'));
+    bar.appendChild(label);
+  });
+}
+
+function renderHead(){
+  var th=document.getElementById('tHead');
+  th.innerHTML='';
+  var tr=document.createElement('tr');
+  DATA.meta.groups.forEach(function(g){
+    g.cols.forEach(function(c){
+      if(!VIS[c]) return;
+      var h=document.createElement('th');
+      h.dataset.k=c;
+      var arrow=SORT.k===c?(SORT.d<0?' ▼':' ▲'):'';
+      h.textContent=c+arrow;
+      h.onclick=function(){ sortBy(c); };
+      tr.appendChild(h);
+    });
+  });
+  th.appendChild(tr);
+}
+
+function sortBy(c){
+  if(SORT.k===c) SORT.d=-SORT.d; else {SORT.k=c; SORT.d=-1;}
+  PAGE=1;
+  renderHead(); renderBody();
+}
+
+function rows(){
+  var list=DATA.rows.filter(function(r){ return !LVL || r.level===LVL; });
+  var k=SORT.k, d=SORT.d;
+  list.sort(function(a,b){
+    var va=a[k], vb=b[k];
+    if(va===''||va===null) va=-Infinity;
+    if(vb===''||vb===null) vb=-Infinity;
+    var na=parseFloat(va), nb=parseFloat(vb);
+    var r;
+    if(!isNaN(na)&&!isNaN(nb)) r=na-nb; else r=String(va).localeCompare(String(vb),'zh');
+    return r*d;
+  });
+  return list;
+}
+
+function visibleColCount(){
+  var vc=0;
+  DATA.meta.groups.forEach(function(g){ g.cols.forEach(function(c){ if(VIS[c]) vc++; }); });
+  return vc;
+}
+
+function renderBody(){
+  var tb=document.getElementById('tBody');
+  tb.innerHTML='';
+  var list=rows();
+  document.getElementById('cntLabel').textContent='共 '+list.length+' 行';
+  if(!list.length){ tb.innerHTML='<tr><td colspan="'+visibleColCount()+'" style="color:#6b7a96;text-align:center;padding:20px">无数据</td></tr>'; renderPager(0); return; }
+  var totalPages=Math.max(1,Math.ceil(list.length/PAGE_SIZE));
+  if(PAGE>totalPages) PAGE=totalPages;
+  var start=(PAGE-1)*PAGE_SIZE;
+  var pageList=list.slice(start, start+PAGE_SIZE);
+  pageList.forEach(function(r){
+    var tr=document.createElement('tr');
+    if(r.level==='sector') tr.className='sector';
+    /* C9 联动：整行点击 → 主图切对应板块/个股 */
+    tr.onclick=function(){ if (window.BoardLink) window.BoardLink.emitNav(r.code, r.level || 'sector', { tab: 'tab-main' }); };
+    DATA.meta.groups.forEach(function(g){
+      g.cols.forEach(function(c){
+        if(!VIS[c]) return;
+        var td=document.createElement('td');
+        var v=r[c];
+        var txt=fmt(v);
+        if(c==='composite_score') td.className='num '+scoreCls(v);
+        else if(c==='change_rate'||c==='net_inflow'||c==='vol_ratio'||c==='C'||c.indexOf('MA')===0||c==='s_turn') td.className='num';
+        /* B14/G-006: 折点列顶/底视觉区分（顶=红 / 底=绿） */
+        if(c==='turn_type'){
+          if(v==='top'){ td.style.color='#ff5d7a'; td.style.fontWeight='700'; }
+          else if(v==='bottom'){ td.style.color='#2dffa0'; td.style.fontWeight='700'; }
+        }
+        var tab=navTabFor(c);
+        if(tab && txt!=='' && c!=='composite_score'){
+          td.className+=' nav'; td.title='跳转 '+tab+'（整合版）';
+          td.onclick=function(ev){
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            /* C9 协议：统一走 BoardLink.emitNav（兼容 C8 旧 board-nav 语义） */
+            if (window.BoardLink) window.BoardLink.emitNav(r.code, r.level || 'sector', { tab: tab });
+            else if (window.parent) window.parent.postMessage({type:'board-nav',tab:tab,code:r.code},'*');
+          };
+        }
+        td.textContent=txt;
+        tr.appendChild(td);
+      });
+    });
+    tb.appendChild(tr);
+  });
+  renderPager(list.length);
+}
+
+function renderPager(total){
+  var pg=document.getElementById('pager');
+  if(!pg) return;
+  var pages=Math.max(1,Math.ceil(total/PAGE_SIZE));
+  if(!total) pages=1;
+  pg.innerHTML='<button class="pgbtn" id="pgPrev"'+(PAGE<=1?' disabled':'')+'>‹ 上一页</button><span class="pginfo">'+PAGE+' / '+pages+'</span><button class="pgbtn" id="pgNext"'+(PAGE>=pages?' disabled':'')+'>下一页 ›</button>';
+  var prev=document.getElementById('pgPrev'), next=document.getElementById('pgNext');
+  if(prev) prev.onclick=function(){ if(PAGE>1){PAGE--; renderBody();} };
+  if(next) next.onclick=function(){ if(PAGE<pages){PAGE++; renderBody();} };
+}
+
+function exportCSV(){
+  var cols=[];
+  DATA.meta.groups.forEach(function(g){ g.cols.forEach(function(c){ if(VIS[c]) cols.push(c); }); });
+  var lines=[cols.join(',')];
+  rows().forEach(function(r){
+    lines.push(cols.map(function(c){
+      var v=r[c];
+      var s=String(v===null||v===undefined?'':v);
+      return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
+    }).join(','));
+  });
+  var blob=new Blob(['\ufeff'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='signal_table_'+DATA.meta.latestDate+'.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+document.getElementById('exportBtn').onclick=exportCSV;
+document.getElementById('apiBtn').onclick=function(){
+  var box=document.getElementById('apiBox');
+  if(box.style.display==='none'){ box.style.display='flex'; } else { box.style.display='none'; }
+};
+document.getElementById('copyBtn').onclick=function(){
+  var t=document.getElementById('apiPre').textContent;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(function(){ document.getElementById('copyBtn').textContent='已复制'; setTimeout(function(){document.getElementById('copyBtn').textContent='复制';},1500); });
+  }
+};
+document.querySelectorAll('#lvlSeg button').forEach(function(b){
+  b.onclick=function(){
+    document.querySelectorAll('#lvlSeg button').forEach(function(x){x.classList.remove('active');});
+    b.classList.add('active');
+    LVL=b.dataset.l;
+    PAGE=1;
+    renderBody();
+  };
+});
+
+fetch('data/tab6_data.json').then(function(r){return r.json();}).then(function(d){
+  DATA=d;
+  buildGroups();
+  renderHead();
+  renderBody();
+  document.getElementById('dateLabel').textContent='日期 '+DATA.meta.latestDate+' · '+DATA.meta.nRows+' 行';
+  var api='GET /api/signal_table?date='+DATA.meta.latestDate+'&level=stock&sort=composite_score&order=desc&cols=code,name,composite_score,dominance,turn_type';
+  document.getElementById('apiPre').textContent=api+'\n// 返回最新完整日判定表（B8 契约 38 列，可加 cols 裁剪；B14 含折点列 turn_type/s_turn）';
+});
+</script>
+</body>
+</html>
